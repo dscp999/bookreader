@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=14;
+const APP_NUM=15;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
@@ -84,6 +84,7 @@ async function ensureCovers(books){
     try{let u=null,err=false;
       if(b.type==='epub'){const full=await dbGet(b.id);if(full){const info=await epubInfo(full.data);u=info.url;
         if(info.title&&info.title!==b.title){const m=libCache.find(x=>x.id===b.id);if(m){m.title=info.title;await dbPut(m)}}}}
+      if(!u&&window.Android&&typeof Android.autoCover==='function'){u=await nativeAuto(b)}
       if(!u){const r=await autoCoverFor(b.title);u=r.url;err=r.err&&!u}
       if(u){try{localStorage.setItem('c_'+b.id,u)}catch(_){}}else if(!err)localStorage.setItem('c_'+b.id,'x');
       softRender();
@@ -434,3 +435,9 @@ function openCov(b){
   if(window.Android&&Android.openCoverSearch){covBook=b;$('#act').hidden=true;$('#cov').hidden=true;Android.openCoverSearch(b.id,cleanTitle(b.title)||b.title);return}
   openCovSheet(b);
 }
+
+// ---- native: automatic Google Images cover search (hidden WebView in the app) ----
+const autoPending={};
+function nativeAuto(b){return new Promise(res=>{autoPending[b.id]=res;try{Android.autoCover(b.id,cleanTitle(b.title)||b.title)}catch(e){delete autoPending[b.id];res(null);return}
+  setTimeout(()=>{if(autoPending[b.id]){delete autoPending[b.id];res(null)}},60000)})}
+window.onNativeAutoCover=(id,d)=>{const r=autoPending[id];if(r){delete autoPending[id];r(d||null)}};
