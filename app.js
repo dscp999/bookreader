@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=15;
+const APP_NUM=16;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
@@ -76,21 +76,34 @@ async function autoCoverFor(title){
 const autoOn=()=>localStorage.getItem('autocover')!=='0';
 const triedSess=new Set();
 let _rr;const softRender=()=>{clearTimeout(_rr);_rr=setTimeout(()=>{if(!$('#lib').hidden)renderLib(true)},400)};
-async function ensureCovers(books){
-  if(coverBusy||!autoOn())return;
-  const todo=books.filter(b=>{const c=localStorage.getItem('c_'+b.id);return !(c&&c!=='none')&&!triedSess.has(b.id)});
-  if(!todo.length)return;coverBusy=true;let k=0;
+let coverRerun=false;
+const nativeOK=()=>!!(window.Android&&typeof Android.autoCover==='function');
+function bumpStat(ok){let s={ok:0,fail:0};try{s=JSON.parse(localStorage.getItem('autoStat')||'')||s}catch(_){}ok?s.ok++:s.fail++;localStorage.setItem('autoStat',JSON.stringify(s))}
+const needCover=b=>{const c=localStorage.getItem('c_'+b.id);return !(c&&c!=='none')&&!triedSess.has(b.id)};
+async function ensureCovers(){
+  if(!autoOn())return;
+  if(coverBusy){coverRerun=true;return}
+  const hasNative=nativeOK();
+  if(hasNative&&localStorage.getItem('autoMig2')!=='1'){for(const b of libCache){if(localStorage.getItem('c_'+b.id)==='x'&&localStorage.getItem('k_'+b.id)!=='1')localStorage.removeItem('c_'+b.id)}localStorage.setItem('autoMig2','1')}
+  const todo=libCache.filter(needCover);
+  if(!todo.length)return;
+  coverBusy=true;let k=0,done=0;const total=todo.length;toast('표지 찾는 중 0/'+total,true);
   const w=async()=>{while(k<todo.length){const b=todo[k++];triedSess.add(b.id);
-    try{let u=null,err=false;
+    try{let u=null,err=false,nt=false;
       if(b.type==='epub'){const full=await dbGet(b.id);if(full){const info=await epubInfo(full.data);u=info.url;
         if(info.title&&info.title!==b.title){const m=libCache.find(x=>x.id===b.id);if(m){m.title=info.title;await dbPut(m)}}}}
-      if(!u&&window.Android&&typeof Android.autoCover==='function'){u=await nativeAuto(b)}
+      if(!u&&hasNative){nt=true;u=await nativeAuto(b);bumpStat(!!u)}
       if(!u){const r=await autoCoverFor(b.title);u=r.url;err=r.err&&!u}
-      if(u){try{localStorage.setItem('c_'+b.id,u)}catch(_){}}else if(!err)localStorage.setItem('c_'+b.id,'x');
+      if(u){try{localStorage.setItem('c_'+b.id,u)}catch(_){}}
+      else if(!err&&!nt)localStorage.setItem('c_'+b.id,'x');
       softRender();
     }catch(_){}
+    done++;toast('표지 찾는 중 '+done+'/'+total,true);
     await new Promise(r=>setTimeout(r,120))}};
-  try{await Promise.all([w(),w(),w()])}finally{coverBusy=false}
+  try{await Promise.all([w(),w(),w()]);toast('표지 검색 완료')}
+  finally{coverBusy=false;
+    const again=coverRerun||libCache.some(needCover);coverRerun=false;
+    if(again)setTimeout(ensureCovers,400)}
 }
 // ---- manual cover picker ----
 let covBook=null;
@@ -148,7 +161,7 @@ $('#file').onchange=async e=>{
     catch(err){console.error(err)}
     done++;toast('책 등록 중 '+done+'/'+total,true);if(done%6===0)await renderLib()}};
   await Promise.all([worker(),worker(),worker()]);
-  toast(done+'권 등록 완료');await renderLib();
+  toast(done+'권 등록 완료');await renderLib();ensureCovers();
 };
 // ---- reader state ----
 let cur=null,book=null,rend=null,txtW=0,txtPages=1,txtPage=0,locReady=false;
@@ -412,7 +425,7 @@ async function consumeShared(){
 
 // ---- settings button on library screen ----
 const SZ={S:'작게',M:'보통',L:'크게'};
-function syncLibPanel(){$('#pAuto').textContent=autoOn()?'켬':'끔';$('#pSize').textContent=SZ[S.coverSize]||'보통'}
+function syncLibPanel(){updateStat();$('#pAuto').textContent=autoOn()?'켬':'끔';$('#pSize').textContent=SZ[S.coverSize]||'보통'}
 $('#setLibBtn').onclick=()=>{syncUI();syncLibPanel();$('#list').hidden=true;$('#panel').hidden=false};
 $('#setBtn').addEventListener('click',syncLibPanel);
 $('#pAuto').onclick=()=>{localStorage.setItem('autocover',autoOn()?'0':'1');triedSess.clear();syncLibPanel();renderLib(true)};
@@ -439,5 +452,7 @@ function openCov(b){
 // ---- native: automatic Google Images cover search (hidden WebView in the app) ----
 const autoPending={};
 function nativeAuto(b){return new Promise(res=>{autoPending[b.id]=res;try{Android.autoCover(b.id,cleanTitle(b.title)||b.title)}catch(e){delete autoPending[b.id];res(null);return}
-  setTimeout(()=>{if(autoPending[b.id]){delete autoPending[b.id];res(null)}},60000)})}
+  setTimeout(()=>{if(autoPending[b.id]){delete autoPending[b.id];res(null)}},120000)})}
 window.onNativeAutoCover=(id,d)=>{const r=autoPending[id];if(r){delete autoPending[id];r(d||null)}};
+
+function updateStat(){const e=$('#pStat');if(!e)return;if(!nativeOK()){e.textContent='앱(APK) 전용';return}let s={ok:0,fail:0};try{s=JSON.parse(localStorage.getItem('autoStat')||'')||s}catch(_){}e.textContent='성공 '+s.ok+' / 실패 '+s.fail}
