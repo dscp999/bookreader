@@ -17,8 +17,9 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=18;
+const APP_NUM=19;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto'},JSON.parse(localStorage.getItem('rs')||'{}'));
+let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
 applyTheme();
@@ -118,12 +119,13 @@ $('#covGo').onclick=async()=>{
 $('#covQ').addEventListener('keydown',e=>{if(e.key==='Enter')$('#covGo').click()});
 $('#covClose').onclick=()=>$('#cov').hidden=true;
 $('#covDel').onclick=()=>{setCover(covBook.id,'x',false);$('#cov').hidden=true;renderLib(true)};
-$('#covFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{const u=await blobToCover(f);setCover(covBook.id,u,true)}catch(_){alert('이미지를 불러오지 못했어요')}$('#cov').hidden=true;renderLib(true)};
+$('#covFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{const u=await blobToCover(f);setCover(covBook.id,u,true)}catch(_){uiAlert('이미지를 불러오지 못했어요')}$('#cov').hidden=true;renderLib(true)};
 $('#autoBtn').onclick=()=>{localStorage.setItem('autocover',autoOn()?'0':'1');triedSess.clear();renderLib(true)};
 let libCache=[];
 async function renderLib(useCache){
   if(!useCache)libCache=await dbAll();
-  const books=libCache.map(b=>{const p=getP(b.id);return Object.assign({},b,{pct:p?p.pct||0:0,opened:+localStorage.getItem('o_'+b.id)||0})});
+  const counts=[0,0,0,0];libCache.forEach(b=>counts[(b.shelf||0)%4]++);renderShelfTabs(counts);
+  const books=libCache.filter(b=>((b.shelf||0)%4)===curShelf).map(b=>{const p=getP(b.id);return Object.assign({},b,{pct:p?p.pct||0:0,opened:+localStorage.getItem('o_'+b.id)||0})});
   books.sort((a,b)=>sortBy==='title'?a.title.localeCompare(b.title,'ko'):sortBy==='pct'?b.pct-a.pct:sortBy==='added'?b.added-a.added:(b.opened-a.opened)||(b.added-a.added));
   $('#sort').value=sortBy;$('#viewBtn').textContent=view==='shelf'?'목록':'책꽂이';$('#editBtn').textContent=editMode?'완료':'편집';$('#autoBtn').hidden=!editMode;$('#sizeBtn').hidden=!editMode;$('#rebuildBtn').hidden=!editMode;$('#sizeBtn').textContent='표지 크기: '+({S:'작게',M:'보통',L:'크게'})[S.coverSize];$('#updBtn2').hidden=!editMode;$('#autoBtn').textContent='자동표지: '+(autoOn()?'켬':'끔');
   $('#empty').hidden=books.length>0;const g=$('#grid');g.innerHTML='';g.className=view;
@@ -157,7 +159,7 @@ $('#file').onchange=async e=>{
   const total=files.length;let idx=0,done=0;toast('책 등록 중 0/'+total,true);
   const worker=async()=>{while(idx<total){const f=files[idx++];
     try{const type=/\.epub$/i.test(f.name)?'epub':'txt';const data=await f.arrayBuffer();
-      await dbAdd({id:Date.now()+Math.random().toString(36).slice(2,7),title:f.name.replace(/\.(epub|txt)$/i,''),type,pos:null,pct:0,bookmarks:[],added:Date.now()+idx},data)}
+      await dbAdd({id:Date.now()+Math.random().toString(36).slice(2,7),title:f.name.replace(/\.(epub|txt)$/i,''),type,pos:null,pct:0,bookmarks:[],shelf:curShelf,added:Date.now()+idx},data)}
     catch(err){console.error(err)}
     done++;toast('책 등록 중 '+done+'/'+total,true);if(done%6===0)await renderLib()}};
   await Promise.all([worker(),worker(),worker()]);
@@ -374,17 +376,17 @@ async function hardReload(){try{for(const k of await caches.keys())await caches.
 async function checkUpdate(){
   try{
     const t=await (await fetch('sw.js?'+Date.now(),{cache:'no-store'})).text();const n=+((t.match(/reader-v(\d+)/)||[])[1]||0);
-    if(n>APP_NUM){alert('새 버전(v'+n+')이 있어요. 지금 업데이트합니다.');await hardReload()}
-    else if(confirm('최신 버전입니다 (v'+APP_NUM+').\n그래도 저장된 앱 캐시를 지우고 다시 불러올까요? (책과 읽던 위치는 유지됩니다)'))await hardReload();
-  }catch(e){alert('업데이트를 확인하지 못했어요. 인터넷 연결을 확인하세요.')}
+    if(n>APP_NUM){await uiAlert('새 버전(v'+n+')이 있어요. 지금 업데이트합니다.');await hardReload()}
+    else if(await uiConfirm('최신 버전입니다 (v'+APP_NUM+').\n그래도 저장된 앱 캐시를 지우고 다시 불러올까요? (책과 읽던 위치는 유지됩니다)'))await hardReload();
+  }catch(e){uiAlert('업데이트를 확인하지 못했어요. 인터넷 연결을 확인하세요.')}
 }
 $('#updBtn').onclick=checkUpdate;$('#updBtn2').onclick=checkUpdate;
 
 // ---- Moon+ style: long-press menu, built-in covers, rebuild, size ----
-function setCover(id,u,lock){try{localStorage.setItem('c_'+id,u)}catch(_){alert('저장 공간이 부족해요');return}if(lock)localStorage.setItem('k_'+id,'1');else localStorage.removeItem('k_'+id)}
+function setCover(id,u,lock){try{localStorage.setItem('c_'+id,u)}catch(_){uiAlert('저장 공간이 부족해요');return}if(lock)localStorage.setItem('k_'+id,'1');else localStorage.removeItem('k_'+id)}
 function buildStyles(){const box=$('#covStyles');box.innerHTML='';STY.forEach((s,i)=>{const d=document.createElement('div');d.className='sty';d.style.background=styBg(i);d.onclick=()=>{setCover(covBook.id,'style:'+i,true);$('#cov').hidden=true;renderLib(true)};box.appendChild(d)})}
 $('#covAuto').onclick=()=>{localStorage.removeItem('c_'+covBook.id);localStorage.removeItem('k_'+covBook.id);triedSess.delete(covBook.id);$('#cov').hidden=true;renderLib(true)};
-async function deleteBook(b){if(!confirm('"'+b.title+'" 삭제할까요?'))return;await dbDel(b.id);['p_','b_','c_','o_','k_'].forEach(k=>localStorage.removeItem(k+b.id));$('#act').hidden=true;renderLib()}
+async function deleteBook(b){if(!(await uiConfirm('"'+b.title+'" 삭제할까요?')))return;await dbDel(b.id);['p_','b_','c_','o_','k_'].forEach(k=>localStorage.removeItem(k+b.id));$('#act').hidden=true;renderLib()}
 function openAct(b){
   $('#actT').textContent=b.title;const body=$('#actBody');body.innerHTML='';
   const add=(label,fn,cls)=>{const x=document.createElement('button');x.textContent=label;if(cls)x.className=cls;x.onclick=fn;body.appendChild(x)};
@@ -392,7 +394,8 @@ function openAct(b){
   add('표지 선택...',()=>openCov(b));
   if(window.Android&&Android.openCoverSearch)add('내장 표지 / 내 이미지로 선택...',()=>openCovSheet(b));
   add('표지 자동으로 다시 만들기',()=>{localStorage.removeItem('c_'+b.id);localStorage.removeItem('k_'+b.id);triedSess.delete(b.id);$('#act').hidden=true;renderLib(true)});
-  add('이름 바꾸기',async()=>{const t=prompt('책 이름',b.title);if(t&&t.trim()){const m=libCache.find(x=>x.id===b.id);if(m){m.title=t.trim();await dbPut(m)}$('#act').hidden=true;renderLib(true)}});
+  add('이름 바꾸기',async()=>{const t=await uiPrompt('책 이름',b.title);if(t&&t.trim()){const m=libCache.find(x=>x.id===b.id);if(m){m.title=t.trim();await dbPut(m)}$('#act').hidden=true;renderLib(true)}});
+  add('다른 책장으로 이동...',()=>pickShelf(b));
   add('삭제',()=>deleteBook(b),'danger');
   add('닫기',()=>$('#act').hidden=true);
   $('#act').hidden=false;
@@ -405,7 +408,7 @@ function bindBook(el,b){
   el.addEventListener('contextmenu',e=>{e.preventDefault();stop();if(!el._lp)fire()});
   el.onclick=()=>{if(el._lp)return;openBook(b.id)};
 }
-$('#rebuildBtn').onclick=()=>{if(!confirm('직접 고른 표지를 제외한 모든 표지를 다시 만들까요?'))return;
+$('#rebuildBtn').onclick=async()=>{if(!(await uiConfirm('직접 고른 표지를 제외한 모든 표지를 다시 만들까요?')))return;
   for(const b of libCache){if(localStorage.getItem('k_'+b.id)!=='1')localStorage.removeItem('c_'+b.id)}triedSess.clear();toast('표지를 다시 만드는 중...');renderLib(true)};
 $('#sizeBtn').onclick=()=>{S.coverSize=S.coverSize==='M'?'L':S.coverSize==='L'?'S':'M';saveS();renderLib(true)};
 
@@ -494,3 +497,32 @@ function nativeAuto(b){return new Promise(res=>{autoPending[b.id]=res;try{Androi
 window.onNativeAutoCover=(id,d)=>{const r=autoPending[id];if(r){delete autoPending[id];r(d||null)}};
 
 function updateStat(){const e=$('#pStat');if(!e)return;if(!nativeOK()){e.textContent='앱(APK) 전용';return}let s={ok:0,fail:0};try{s=JSON.parse(localStorage.getItem('autoStat')||'')||s}catch(_){}e.textContent='성공 '+s.ok+' / 실패 '+s.fail}
+
+// ---- in-app dialogs (WebView-safe replacements for confirm/prompt/alert) ----
+function uiDlg(msg,o){o=o||{};const input=o.input===undefined?null:o.input;
+  return new Promise(res=>{const d=$('#dlg'),bg=$('#dlgBg'),inp=$('#dlgIn');
+    $('#dlgMsg').textContent=msg;inp.hidden=input===null;if(input!==null)inp.value=input;
+    $('#dlgNo').hidden=!!o.single;d.hidden=false;bg.hidden=false;if(input!==null)setTimeout(()=>inp.focus(),60);
+    const done=v=>{d.hidden=true;bg.hidden=true;$('#dlgOk').onclick=null;$('#dlgNo').onclick=null;res(v)};
+    $('#dlgOk').onclick=()=>done(input!==null?inp.value:true);$('#dlgNo').onclick=()=>done(input!==null?null:false)})}
+const uiConfirm=m=>uiDlg(m),uiPrompt=(m,v)=>uiDlg(m,{input:v||''}),uiAlert=m=>uiDlg(m,{single:true});
+// ---- 4 separate bookshelves ----
+function shelfNames(){try{const a=JSON.parse(localStorage.getItem('shelfNames')||'null');if(Array.isArray(a)&&a.length===4)return a}catch(_){}return ['책장 1','책장 2','책장 3','책장 4']}
+function renderShelfTabs(counts){
+  const box=$('#shelfTabs');if(!box)return;const names=shelfNames();box.innerHTML='';
+  names.forEach((n,i)=>{const b=document.createElement('button');b.className='stab'+(i===curShelf?' on':'');b.innerHTML='<span></span><small></small>';
+    b.firstChild.textContent=n;b.lastChild.textContent=counts[i]+'권';
+    let t=null,lp=false;const stop=()=>{clearTimeout(t);t=null};
+    b.addEventListener('touchstart',()=>{lp=false;stop();t=setTimeout(()=>{lp=true;setTimeout(()=>lp=false,800);renameShelf(i)},600)},{passive:true});
+    ['touchend','touchmove','touchcancel'].forEach(ev=>b.addEventListener(ev,stop,{passive:true}));
+    b.addEventListener('contextmenu',e=>{e.preventDefault();stop();lp=true;setTimeout(()=>lp=false,800);renameShelf(i)});
+    b.onclick=()=>{if(lp)return;curShelf=i;localStorage.setItem('curShelf',i);editMode=false;renderLib(true)};
+    box.appendChild(b)});
+}
+async function renameShelf(i){const names=shelfNames();const t=await uiPrompt('책장 이름 (최대 12자)',names[i]);
+  if(t&&t.trim()){names[i]=t.trim().slice(0,12);localStorage.setItem('shelfNames',JSON.stringify(names));renderLib(true)}}
+function pickShelf(b){
+  const names=shelfNames();$('#actT').textContent='"'+b.title+'" 이동할 책장';const body=$('#actBody');body.innerHTML='';
+  names.forEach((n,i)=>{if(i===((b.shelf||0)%4))return;const x=document.createElement('button');x.textContent=n;
+    x.onclick=async()=>{const m=libCache.find(y=>y.id===b.id);if(m){m.shelf=i;await dbPut(m)}$('#act').hidden=true;renderLib(true);toast(n+'(으)로 옮겼어요')};body.appendChild(x)});
+  const c=document.createElement('button');c.textContent='취소';c.onclick=()=>$('#act').hidden=true;body.appendChild(c);$('#act').hidden=false}

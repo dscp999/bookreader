@@ -73,3 +73,14 @@ h1{margin:0;font-size:22px;text-shadow:0 2px 4px #0008}
 #cov{max-height:88%;overflow:auto}#cov button.prim{background:#c98a3e!important;color:#2a1a0f!important;border-color:#c98a3e!important;font-weight:700}#cov .msg b{color:#ffd58a}
 #panel{position:fixed;z-index:60;left:0;right:0;bottom:0}#panel .row button{white-space:nowrap}
 #txtin.sp-n p{margin:0 0 .3em}#txtin.sp-s p{margin:0;text-indent:.5em}
+#shelfTabs{display:flex;gap:6px;padding:0 12px 8px;overflow-x:auto}
+#lib .stab{flex:1 0 74px;display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 8px;border-radius:10px 10px 4px 4px;background:#0005;color:#f3e3cf99;border:1px solid #f3e3cf33;font-size:14px;white-space:nowrap}
+.stab small{font-size:11px;opacity:.75}
+#lib .stab.on{background:linear-gradient(#b87a3a,#8a5a2b);color:#2a1a0f;border-color:#c98a3e;font-weight:700}
+#dlgBg{position:fixed;inset:0;background:#000a;z-index:90}
+#dlg{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);width:min(88vw,380px);background:#2a1a0f;color:#f3e3cf;padding:18px;border-radius:14px;z-index:100;box-shadow:0 8px 30px #000c}
+#dlgMsg{white-space:pre-wrap;margin-bottom:12px;line-height:1.5}
+#dlgIn{width:100%;padding:10px;border-radius:8px;border:1px solid #f3e3cf55;background:#0006;color:#f3e3cf;font-size:16px;margin-bottom:12px}
+.dlgBtns{display:flex;justify-content:flex-end;gap:8px}
+#dlg button{background:#0005;color:#f3e3cf;border:1px solid #f3e3cf44;border-radius:8px;padding:9px 16px;font-size:15px}
+#dlg #dlgOk{background:#c98a3e;color:#2a1a0f;border-color:#c98a3e;font-weight:700}
