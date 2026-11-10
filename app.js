@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=16;
+const APP_NUM=17;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
@@ -165,7 +165,7 @@ $('#file').onchange=async e=>{
 };
 // ---- reader state ----
 let cur=null,book=null,rend=null,txtW=0,txtPages=1,txtPage=0,locReady=false;
-const FF={serif:'"Noto Serif KR","Nanum Myeongjo",serif','sans-serif':'"Noto Sans KR","Nanum Gothic",sans-serif',monospace:'monospace'};
+const FF={serif:'"Noto Serif KR","Nanum Myeongjo",serif','sans-serif':'"Noto Sans KR","Nanum Gothic",sans-serif',monospace:'monospace',book:'serif'};
 function decodeText(buf){
   const u=new Uint8Array(buf);
   if(u[0]===0xFF&&u[1]===0xFE)return new TextDecoder('utf-16le').decode(buf);
@@ -200,11 +200,15 @@ async function openEpub(){
   await rend.display(cur.pos||undefined);
   book.ready.then(()=>book.locations.generate(1200)).then(()=>{locReady=true;if(cur&&rend){const l=rend.currentLocation();if(l&&l.start){cur.pct=book.locations.percentageFromCfi(l.start.cfi);showPct()}}}).catch(()=>{});
 }
+let epubFFApplied=null;
 function applyEpubStyle(){
   if(!rend)return;const cs=getComputedStyle(document.body);
   rend.flow(S.flow);rend.spread(S.spread==='2'?'both':S.spread==='1'?'none':'auto',800);
   const bg=cs.getPropertyValue('--bg'),fg=cs.getPropertyValue('--fg');
-  rend.themes.default({body:{background:bg+' !important',color:fg+' !important','font-family':FF[S.ff]+' !important','line-height':S.lh+' !important',padding:'0 '+S.mg+'px !important'},'p,div,span,li':{color:fg+' !important','line-height':S.lh+' !important'},a:{color:'#6aa9ff !important'}});
+  const ffRule=S.ff==='book'?{}:{'font-family':FF[S.ff]+' !important'};
+  const rules={body:Object.assign({background:bg+' !important',color:fg+' !important','line-height':S.lh+' !important',padding:'0 '+S.mg+'px !important'},ffRule),'p,div,span,li':{color:fg+' !important','line-height':S.lh+' !important'},a:{color:'#6aa9ff !important'}};
+  if(S.ff!=='book')rules['html body *:not(#_f)']=ffRule;
+  rend.themes.default(rules);epubFFApplied=S.ff;
   rend.themes.fontSize(S.fs+'px');
 }
 // TXT (section-based pagination for large files)
@@ -291,7 +295,7 @@ $('#back').onclick=async()=>{setP();if(rend){rend.destroy();book.destroy();rend=
 function syncUI(){
   $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;$('#ver').textContent='v'+APP_NUM;showPct();
 }
-function relayout(){applyTheme();if(!cur)return;if(cur.type==='epub')applyEpubStyle();else layoutTxt(cur.pos||0)}
+function relayout(){applyTheme();if(!cur)return;if(cur.type==='epub'){if(epubFFApplied!==null&&(S.ff==='book')!==(epubFFApplied==='book')){try{rend.destroy();book.destroy()}catch(_){}rend=book=null;epubFFApplied=null;openEpub();return}applyEpubStyle()}else layoutTxt(cur.pos||0)}
 $('#setBtn').onclick=()=>{$('#panel').hidden=false;$('#list').hidden=true};
 $('#closeP').onclick=()=>$('#panel').hidden=true;$('#closeL').onclick=()=>$('#list').hidden=true;
 document.querySelectorAll('#themes button').forEach(b=>b.onclick=()=>{S.theme=b.dataset.t;saveS();relayout()});
