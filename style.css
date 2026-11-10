@@ -48,3 +48,13 @@ h1{margin:0;font-size:22px;text-shadow:0 2px 4px #0008}
 [hidden]{display:none!important}
 #txtin p{margin:0 0 .6em;text-indent:1em;word-break:keep-all;overflow-wrap:break-word}
 #txtin.sc p{content-visibility:auto;contain-intrinsic-size:auto 90px}
+.cb{position:absolute;top:-8px;left:-8px;width:24px;height:24px;padding:0!important;border-radius:50%!important;background:#c98a3e!important;color:#2a1a0f!important;border:0!important;z-index:2;font-size:12px!important}
+.li .cb{position:static;flex:none;width:auto;height:auto;border-radius:8px!important;padding:6px 8px!important}
+.fx{position:fixed;z-index:50;background:#2a1a0f;color:#f3e3cf}
+#cov input[type=text]{flex:1;min-width:0;padding:9px;border-radius:8px;border:1px solid #f3e3cf55;background:#0006;color:#f3e3cf;font-size:15px}
+#cov button,#cov .btn{background:#0005;color:#f3e3cf;border:1px solid #f3e3cf44;border-radius:8px;padding:8px 11px;font-size:14px}
+.covres{display:flex;gap:10px;overflow-x:auto;padding:6px 2px;min-height:120px}
+.covres figure{margin:0;flex:none;width:84px;cursor:pointer;font-size:11px;text-align:center}
+.covres img{width:84px;height:116px;object-fit:cover;border-radius:3px;box-shadow:0 2px 6px #000a;background:#0004}
+.covres figcaption{margin-top:3px;max-height:2.6em;overflow:hidden}
+.msg{font-size:13px;opacity:.8;min-height:1.2em}
