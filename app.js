@@ -135,7 +135,11 @@ function decodeText(buf){
   const u=new Uint8Array(buf);
   if(u[0]===0xFF&&u[1]===0xFE)return new TextDecoder('utf-16le').decode(buf);
   if(u[0]===0xFE&&u[1]===0xFF)return new TextDecoder('utf-16be').decode(buf);
-  try{return new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch(_){return new TextDecoder('euc-kr').decode(buf)}
+  const cnt=s=>{let n=0,i=-1;while((i=s.indexOf('\uFFFD',i+1))!==-1)n++;return n};
+  const a=new TextDecoder('utf-8').decode(buf);const ba=cnt(a);
+  if(ba===0)return a;
+  const b=new TextDecoder('euc-kr').decode(buf);const bb=cnt(b);
+  return ba<=bb?a:b;
 }
 async function openBook(id){
   cur=await dbGet(id);localStorage.setItem('o_'+id,Date.now());const pr=getP(id);if(pr){cur.pos=pr.pos;cur.pct=pr.pct||0}else if(cur.type==='txt'){cur.pos=0;cur.pct=0}
