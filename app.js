@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=21;
+const APP_NUM=22;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
@@ -496,7 +496,7 @@ function nativeAuto(b){return new Promise(res=>{autoPending[b.id]=res;try{Androi
   setTimeout(()=>{if(autoPending[b.id]){delete autoPending[b.id];res(null)}},120000)})}
 window.onNativeAutoCover=(id,d,reason)=>{if(!d&&reason)localStorage.setItem('autoLast',String(reason).slice(0,200));else if(d)localStorage.setItem('autoLast','');const r=autoPending[id];if(r){delete autoPending[id];r(d||null)}};
 
-function updateStat(){const e=$('#pStat');if(!e)return;if(!nativeOK()){e.textContent='앱(APK) 전용';return}let s={ok:0,fail:0};try{s=JSON.parse(localStorage.getItem('autoStat')||'')||s}catch(_){}e.textContent='성공 '+s.ok+' / 실패 '+s.fail;const m=$('#pStatMsg');if(m)m.textContent=localStorage.getItem('autoLast')?'최근 실패 원인: '+localStorage.getItem('autoLast'):''}
+function updateStat(){const ra=$('#rowGetApp');if(ra)ra.hidden=nativeOK();const e=$('#pStat');if(!e)return;if(!nativeOK()){e.textContent='앱(APK) 전용';return}let s={ok:0,fail:0};try{s=JSON.parse(localStorage.getItem('autoStat')||'')||s}catch(_){}e.textContent='성공 '+s.ok+' / 실패 '+s.fail;const m=$('#pStatMsg');if(m)m.textContent=localStorage.getItem('autoLast')?'최근 실패 원인: '+localStorage.getItem('autoLast'):''}
 
 // ---- in-app dialogs (WebView-safe replacements for confirm/prompt/alert) ----
 function uiDlg(msg,o){o=o||{};const input=o.input===undefined?null:o.input;
@@ -563,7 +563,7 @@ function syncShelfColorSel(){const s=$('#shelfColorSel');if(!s)return;if(!s.opti
 
 async function diagCover(){
   toast('진단 중... (최대 1분)',true);const L=[];
-  L.push('앱 연동(네이티브): '+(nativeOK()?'있음':'없음 → 웹/크롬 앱이라 구글 이미지 자동 검색을 쓸 수 없어요'));
+  L.push('앱 연동(네이티브): '+(nativeOK()?'있음':'없음 → 웹/크롬 앱이라 구글 이미지 자동 검색을 쓸 수 없어요. 설정의 "앱 받기"로 네이티브 앱을 설치하세요'));
   if(nativeOK()){const t0=Date.now();const u=await nativeAuto({id:'__diag',title:'데미안'});
     L.push('구글 이미지 검색: '+(u?'성공 ('+Math.round((Date.now()-t0)/1000)+'초)':'실패 - '+(localStorage.getItem('autoLast')||'원인 불명(앱을 최신 APK로 바꿔 주세요)')))}
   const test=async(label,url)=>{try{const r=await fetch(url);L.push(label+': HTTP '+r.status+(r.status===429?' (요청 제한)':''))}catch(e){L.push(label+': 연결 실패')}};
