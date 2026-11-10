@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=12;
+const APP_NUM=13;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
@@ -426,4 +426,4 @@ window.__onBack=()=>{
   if(editMode){editMode=false;renderLib(true);return true}
   return false;
 };
-if(window.Android&&Android.openCoverSearch){const m=document.querySelector('#cov .msg');if(m)m.innerHTML='"Google 이미지 열기"를 누르고 마음에 드는 표지를 <b>길게 누르면</b> 바로 적용돼요.'}
+if(window.Android&&Android.openCoverSearch){const m=document.querySelector('#cov .msg');if(m)m.innerHTML='"Google 이미지 열기"를 누르고 마음에 드는 표지를 <b>탭하면</b> 바로 적용돼요.'}
