@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=13;
+const APP_NUM=14;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
@@ -93,7 +93,7 @@ async function ensureCovers(books){
 }
 // ---- manual cover picker ----
 let covBook=null;
-function openCov(b){covBook=b;$('#cov').hidden=false;$('#act').hidden=true;$('#covT').textContent='표지 선택 · '+b.title;buildStyles();$('#covQ').value=cleanTitle(b.title)||b.title;$('#covRes').innerHTML='';$('#covGo').click()}
+function openCovSheet(b){covBook=b;$('#cov').hidden=false;$('#act').hidden=true;$('#covT').textContent='표지 선택 · '+b.title;buildStyles();$('#covQ').value=cleanTitle(b.title)||b.title;$('#covRes').innerHTML='';$('#covGo').click()}
 $('#covGo').onclick=async()=>{
   const q=$('#covQ').value.trim();if(!q)return;$('#covMsg').textContent='검색 중...';$('#covRes').innerHTML='';
   const {list,netErr}=await searchCovers(q);
@@ -338,6 +338,7 @@ function openAct(b){
   const add=(label,fn,cls)=>{const x=document.createElement('button');x.textContent=label;if(cls)x.className=cls;x.onclick=fn;body.appendChild(x)};
   add('열기',()=>{$('#act').hidden=true;openBook(b.id)});
   add('표지 선택...',()=>openCov(b));
+  if(window.Android&&Android.openCoverSearch)add('내장 표지 / 내 이미지로 선택...',()=>openCovSheet(b));
   add('표지 자동으로 다시 만들기',()=>{localStorage.removeItem('c_'+b.id);localStorage.removeItem('k_'+b.id);triedSess.delete(b.id);$('#act').hidden=true;renderLib(true)});
   add('이름 바꾸기',async()=>{const t=prompt('책 이름',b.title);if(t&&t.trim()){const m=libCache.find(x=>x.id===b.id);if(m){m.title=t.trim();await dbPut(m)}$('#act').hidden=true;renderLib(true)}});
   add('삭제',()=>deleteBook(b),'danger');
@@ -427,3 +428,9 @@ window.__onBack=()=>{
   return false;
 };
 if(window.Android&&Android.openCoverSearch){const m=document.querySelector('#cov .msg');if(m)m.innerHTML='"Google 이미지 열기"를 누르고 마음에 드는 표지를 <b>탭하면</b> 바로 적용돼요.'}
+
+// "표지 선택": in the native app go straight to Google Images
+function openCov(b){
+  if(window.Android&&Android.openCoverSearch){covBook=b;$('#act').hidden=true;$('#cov').hidden=true;Android.openCoverSearch(b.id,cleanTitle(b.title)||b.title);return}
+  openCovSheet(b);
+}
