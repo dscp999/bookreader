@@ -17,13 +17,13 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=17;
-const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M'},JSON.parse(localStorage.getItem('rs')||'{}'));
+const APP_NUM=18;
+const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
 applyTheme();
 const getP=id=>{try{return JSON.parse(localStorage.getItem('p_'+id)||'null')}catch(_){return null}};
-const setP=()=>{if(cur)localStorage.setItem('p_'+cur.id,JSON.stringify({pos:cur.pos,pct:cur.pct}))};
+const setP=()=>{if(cur)localStorage.setItem('p_'+cur.id,JSON.stringify({pos:cur.pos,pct:cur.pct,sig:cur.sig}))};
 const saveBM=()=>localStorage.setItem('b_'+cur.id,JSON.stringify(cur.bookmarks||[]));
 // ---- library ----
 let view=localStorage.getItem('view')||'shelf',sortBy=localStorage.getItem('sort')||'recent',editMode=false,coverBusy=false;
@@ -195,12 +195,19 @@ async function openEpub(){
     else if(loc.start.percentage!=null)cur.pct=loc.start.percentage;
     showPct();setP();
   });
+  rend.hooks.content.register(contents=>{if(S.space!=='off')compactDoc(contents.document)});
   rend.on('keyup',keyNav);
   rend.on('click',()=>{});
   await rend.display(cur.pos||undefined);
   book.ready.then(()=>book.locations.generate(1200)).then(()=>{locReady=true;if(cur&&rend){const l=rend.currentLocation();if(l&&l.start){cur.pct=book.locations.percentageFromCfi(l.start.cfi);showPct()}}}).catch(()=>{});
 }
-let epubFFApplied=null;
+let epubFFApplied=null,epubSpApplied=null;
+function compactDoc(d){try{
+  const empt=el=>!el.querySelector('img,svg,image,video,audio,hr,table,canvas,object,iframe')&&!/\S/.test((el.textContent||'').replace(/[\u00a0\u3000\u200b]/g,''));
+  d.querySelectorAll('p,div').forEach(el=>{if(el.tagName==='DIV'&&!Array.from(el.children).every(c=>/^(BR|SPAN|P)$/.test(c.tagName)))return;if(empt(el))el.style.display='none'});
+  d.querySelectorAll('br').forEach(br=>{let n=br.nextSibling;while(n&&n.nodeType===3&&!/\S/.test(n.nodeValue))n=n.nextSibling;if(n&&n.nodeName==='BR')br.remove()});
+  d.querySelectorAll('p').forEach(p=>{let n=p.firstChild;while(n&&n.nodeType===1&&n.childNodes.length===1&&n.firstChild)n=n.firstChild;if(n&&n.nodeType===3)n.nodeValue=n.nodeValue.replace(/^[\u00a0\u3000 \t]+/,'')});
+}catch(e){}}
 function applyEpubStyle(){
   if(!rend)return;const cs=getComputedStyle(document.body);
   rend.flow(S.flow);rend.spread(S.spread==='2'?'both':S.spread==='1'?'none':'auto',800);
@@ -208,6 +215,8 @@ function applyEpubStyle(){
   const ffRule=S.ff==='book'?{}:{'font-family':FF[S.ff]+' !important'};
   const rules={body:Object.assign({background:bg+' !important',color:fg+' !important','line-height':S.lh+' !important',padding:'0 '+S.mg+'px !important'},ffRule),'p,div,span,li':{color:fg+' !important','line-height':S.lh+' !important'},a:{color:'#6aa9ff !important'}};
   if(S.ff!=='book')rules['html body *:not(#_f)']=ffRule;
+  const pm=S.space==='s'?{'margin-top':'0 !important','margin-bottom':'0 !important','text-indent':'0.5em !important'}:S.space==='n'?{'margin-top':'0 !important','margin-bottom':'0.35em !important','text-indent':'1em !important'}:null;
+  if(pm)rules['html body p:not(#_f)']=pm;epubSpApplied=S.space;
   rend.themes.default(rules);epubFFApplied=S.ff;
   rend.themes.fontSize(S.fs+'px');
 }
@@ -216,18 +225,41 @@ let paras=[],cum=[],total=1,secs=[0],curSec=0,ps=[],pageOf=[],txtStep=1;
 const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 function secOf(pi){let lo=0,hi=secs.length-1;while(lo<hi){const m=(lo+hi+1)>>1;if(secs[m]<=pi)lo=m;else hi=m-1}return lo}
 function paraOf(f){let lo=0,hi=paras.length-1;const x=f*total;while(lo<hi){const m=(lo+hi+1)>>1;if(cum[m]<=x)lo=m;else hi=m-1}return lo}
-function openTxt(){
-  $('#viewer').hidden=true;$('#txt').hidden=false;
+const prepSig=()=>S.join+'|'+S.space+'|2';
+function buildParas(text){
+  let lines=text.split('\n');
+  lines=lines.map(l=>S.space!=='off'?l.replace(/[ \t\u3000\u00a0]{2,}/g,' ').trim():l.trim());
+  let join=false,P95=0;
+  if(S.join!=='off'){const ne=lines.filter(Boolean);
+    if(ne.length>=20){const lens=ne.map(l=>l.length).sort((x,y)=>x-y);P95=lens[Math.floor(lens.length*0.95)];
+      const near=ne.filter(l=>l.length>=P95*0.85&&l.length<=P95+2).length;
+      join=S.join==='on'?true:(P95>=25&&P95<=130&&near/ne.length>0.4)}}
+  const out=[];let curp='',lastLen=0;const END=/[.!?。？！…"'”’」』)\]>]$/;
+  for(const l of lines){
+    if(!l){if(curp){out.push(curp);curp=''}lastLen=0;continue}
+    if(join&&curp&&lastLen>=P95*0.85&&!END.test(curp)){curp+=((/[A-Za-z0-9,;:]$/.test(curp)&&/^[A-Za-z0-9]/.test(l))?' ':'')+l}
+    else{if(curp)out.push(curp);curp=l}
+    lastLen=l.length}
+  if(curp)out.push(curp);
+  return out.length?out:['(빈 파일)'];
+}
+function loadParas(){
   const text=decodeText(cur.data).replace(/\r\n?/g,'\n');
-  paras=text.split('\n').map(l=>l.trim()).filter(Boolean);if(!paras.length)paras=['(빈 파일)'];
+  paras=buildParas(text);
   cum=[];let t=0;for(const p of paras){cum.push(t);t+=p.length}total=Math.max(1,t);
   secs=[0];let acc=0;for(let i=0;i<paras.length;i++){acc+=paras[i].length;if(acc>6000&&i+1<paras.length){secs.push(i+1);acc=0}}
-  const pi=typeof cur.pos==='number'&&cur.pos>=0?Math.min(cur.pos|0,paras.length-1):0;
+  cur.sig=prepSig();
+}
+function openTxt(){
+  $('#viewer').hidden=true;$('#txt').hidden=false;
+  const pr=getP(cur.id);const oldSig=pr&&pr.sig;
+  loadParas();
+  let pi;if(oldSig===cur.sig&&typeof cur.pos==='number'&&cur.pos>=0)pi=Math.min(cur.pos|0,paras.length-1);else pi=paraOf(cur.pct||0);
   layoutTxt(pi);
 }
 function layoutTxt(pi,last){
   const t=$('#txt'),i=$('#txtin'),cs=getComputedStyle(document.body);
-  const paged=S.flow==='paginated';t.classList.toggle('scroll',!paged);i.classList.toggle('sc',!paged);
+  const paged=S.flow==='paginated';t.classList.toggle('scroll',!paged);i.classList.toggle('sc',!paged);i.classList.remove('sp-off','sp-n','sp-s');i.classList.add('sp-'+S.space);
   const padH=S.mg+8,padV=24;t.style.padding=padV+'px '+padH+'px';t.style.background=cs.getPropertyValue('--bg');
   const base='font-size:'+S.fs+'px;line-height:'+S.lh+';font-family:'+FF[S.ff]+';color:'+cs.getPropertyValue('--fg')+';';
   pi=Math.max(0,Math.min(paras.length-1,pi|0));
@@ -293,15 +325,17 @@ $('#seek').onchange=e=>{
 $('#back').onclick=async()=>{setP();if(rend){rend.destroy();book.destroy();rend=book=null}cur=null;$('#reader').hidden=true;$('#lib').hidden=false;renderLib()};
 // panels
 function syncUI(){
-  $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;$('#ver').textContent='v'+APP_NUM;showPct();
+  $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;$('#space').value=S.space;$('#joinSel').value=S.join;$('#ver').textContent='v'+APP_NUM;showPct();
 }
-function relayout(){applyTheme();if(!cur)return;if(cur.type==='epub'){if(epubFFApplied!==null&&(S.ff==='book')!==(epubFFApplied==='book')){try{rend.destroy();book.destroy()}catch(_){}rend=book=null;epubFFApplied=null;openEpub();return}applyEpubStyle()}else layoutTxt(cur.pos||0)}
+function relayout(){applyTheme();if(!cur)return;if(cur.type==='epub'){if((epubFFApplied!==null&&(S.ff==='book')!==(epubFFApplied==='book'))||(epubSpApplied!==null&&epubSpApplied!==S.space)){try{rend.destroy();book.destroy()}catch(_){}rend=book=null;epubFFApplied=epubSpApplied=null;openEpub();return}applyEpubStyle()}else{if(prepSig()!==cur.sig){const f=cur.pct||0;loadParas();layoutTxt(paraOf(f))}else layoutTxt(cur.pos||0)}}
 $('#setBtn').onclick=()=>{$('#panel').hidden=false;$('#list').hidden=true};
 $('#closeP').onclick=()=>$('#panel').hidden=true;$('#closeL').onclick=()=>$('#list').hidden=true;
 document.querySelectorAll('#themes button').forEach(b=>b.onclick=()=>{S.theme=b.dataset.t;saveS();relayout()});
 for(const [id,k] of [['fs','fs'],['lh','lh'],['mg','mg']])$('#'+id).oninput=e=>{S[k]=+e.target.value;saveS();relayout()};
 $('#ff').onchange=e=>{S.ff=e.target.value;saveS();relayout()};
 $('#spread').onchange=e=>{S.spread=e.target.value;saveS();relayout()};
+$('#space').onchange=e=>{S.space=e.target.value;saveS();relayout()};
+$('#joinSel').onchange=e=>{S.join=e.target.value;saveS();relayout()};
 $('#flow').onchange=e=>{S.flow=e.target.value;saveS();relayout()};
 window.addEventListener('resize',()=>{if(cur&&cur.type==='txt')layoutTxt(cur.pos||0)});
 // list: toc + bookmarks
