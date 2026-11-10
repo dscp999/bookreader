@@ -71,3 +71,4 @@ h1{margin:0;font-size:22px;text-shadow:0 2px 4px #0008}
 #act button.danger{color:#ff8d80}
 
 #cov{max-height:88%;overflow:auto}#cov button.prim{background:#c98a3e!important;color:#2a1a0f!important;border-color:#c98a3e!important;font-weight:700}#cov .msg b{color:#ffd58a}
+#panel{position:fixed;z-index:60;left:0;right:0;bottom:0}#panel .row button{white-space:nowrap}

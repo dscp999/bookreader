@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=10;
+const APP_NUM=11;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
@@ -266,7 +266,7 @@ document.querySelectorAll('.zone').forEach(z=>z.addEventListener('click',()=>{
 // swipe
 let sx=null;$('#stage').addEventListener('touchstart',e=>{sx=e.touches[0].clientX},{passive:true});
 $('#stage').addEventListener('touchend',e=>{if(sx==null)return;const dx=e.changedTouches[0].clientX-sx;sx=null;if(Math.abs(dx)>60&&(cur.type==='epub'?S.flow==='paginated':S.flow==='paginated')){move(dx<0?1:-1)}});
-function showPct(){const p=Math.round((cur.pct||0)*1000);$('#seek').value=p;$('#pct').textContent=(p/10).toFixed(1)+'%'}
+function showPct(){if(!cur)return;const p=Math.round((cur.pct||0)*1000);$('#seek').value=p;$('#pct').textContent=(p/10).toFixed(1)+'%'}
 $('#seek').onchange=e=>{
   const f=e.target.value/1000;
   if(cur.type==='epub'){if(locReady)rend.display(book.locations.cfiFromPercentage(f))}
@@ -407,3 +407,13 @@ async function consumeShared(){
   }catch(e){}
 }
 (async()=>{await dbp;await new Promise(r=>setTimeout(r,700));if(!libCache.length)libCache=await dbAll();consumeShared()})();
+
+// ---- settings button on library screen ----
+const SZ={S:'작게',M:'보통',L:'크게'};
+function syncLibPanel(){$('#pAuto').textContent=autoOn()?'켬':'끔';$('#pSize').textContent=SZ[S.coverSize]||'보통'}
+$('#setLibBtn').onclick=()=>{syncUI();syncLibPanel();$('#list').hidden=true;$('#panel').hidden=false};
+$('#setBtn').addEventListener('click',syncLibPanel);
+$('#pAuto').onclick=()=>{localStorage.setItem('autocover',autoOn()?'0':'1');triedSess.clear();syncLibPanel();renderLib(true)};
+$('#pSize').onclick=()=>{S.coverSize=S.coverSize==='M'?'L':S.coverSize==='L'?'S':'M';saveS();syncLibPanel();renderLib(true)};
+$('#pRebuild').onclick=()=>{$('#panel').hidden=true;$('#rebuildBtn').click()};
+$('#updBtn').addEventListener('click',()=>{});

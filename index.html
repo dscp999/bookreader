@@ -6,7 +6,7 @@
 <title>북리더</title><link rel="stylesheet" href="style.css"></head>
 <body class="t-dark">
 <section id="lib">
-  <header><h1>내 책꽂이</h1><div class="hb"><select id="sort"><option value="recent">최근 읽은 순</option><option value="added">추가한 순</option><option value="title">제목 순</option><option value="pct">진행률 순</option></select><button id="viewBtn">목록</button><button id="sizeBtn" hidden>표지 크기: 보통</button><button id="rebuildBtn" hidden>표지 다시 만들기</button><button id="updBtn2" hidden>업데이트 확인</button><button id="autoBtn" hidden>자동표지: 켬</button><button id="editBtn">편집</button><label class="btn plus">+ 책 추가<input id="file" type="file" accept=".epub,.txt,application/epub+zip,text/plain" multiple hidden></label></div></header>
+  <header><h1>내 책꽂이</h1><div class="hb"><button id="setLibBtn">⚙ 설정</button><select id="sort"><option value="recent">최근 읽은 순</option><option value="added">추가한 순</option><option value="title">제목 순</option><option value="pct">진행률 순</option></select><button id="viewBtn">목록</button><button id="sizeBtn" hidden>표지 크기: 보통</button><button id="rebuildBtn" hidden>표지 다시 만들기</button><button id="updBtn2" hidden>업데이트 확인</button><button id="autoBtn" hidden>자동표지: 켬</button><button id="editBtn">편집</button><label class="btn plus">+ 책 추가<input id="file" type="file" accept=".epub,.txt,application/epub+zip,text/plain" multiple hidden></label></div></header>
   <div id="grid" class="shelf"></div>
   <p id="empty">EPUB 또는 TXT 파일을 추가하세요.<br>한글 TXT(EUC-KR/UTF-8)는 자동 인식됩니다.</p>
 </section>
@@ -21,13 +21,8 @@
  <div id="covMsg" class="msg"></div><div id="covRes" class="covres"></div>
  <div class="row"><label class="btn">내 이미지 선택<input id="covFile" type="file" accept="image/*" hidden></label><button id="covAuto">자동으로 다시 찾기</button><button id="covDel">기본 표지</button><button id="covClose">닫기</button></div></div>
 <div id="act" class="sheet fx" hidden><h3 id="actT"></h3><div id="actBody"></div></div>
-<section id="reader" hidden>
-  <div id="top" class="bar"><button id="back">←</button><span id="title"></span><button id="bmBtn">★</button><button id="listBtn">목록</button><button id="setBtn">Aa</button></div>
-  <div id="stage"><div id="viewer"></div><div id="txt" hidden><div id="txtin"></div></div>
-    <div class="zone l" data-d="-1"></div><div class="zone c"></div><div class="zone r" data-d="1"></div></div>
-  <div id="bottom" class="bar"><input id="seek" type="range" min="0" max="1000" value="0"><span id="pct">0%</span></div>
-  <div id="panel" class="sheet" hidden>
-    <h3>보기 설정</h3>
+<div id="panel" class="sheet" hidden>
+    <h3>설정</h3>
     <div class="row">테마<span id="themes"><button data-t="light">밝게</button><button data-t="sepia">세피아</button><button data-t="dark">어둡게</button><button data-t="black">검정</button></span></div>
     <div class="row">글자 크기<input id="fs" type="range" min="12" max="40" step="1"></div>
     <div class="row">줄 간격<input id="lh" type="range" min="1.2" max="2.4" step="0.1"></div>
@@ -35,9 +30,18 @@
     <div class="row">글꼴<select id="ff"><option value="serif">명조(serif)</option><option value="sans-serif">고딕(sans)</option><option value="monospace">고정폭</option></select></div>
     <div class="row">화면 분할<select id="spread"><option value="auto">자동(가로 화면 2쪽)</option><option value="1">항상 1쪽</option><option value="2">항상 2쪽</option></select></div>
     <div class="row">넘김 방식<select id="flow"><option value="paginated">페이지</option><option value="scrolled">스크롤</option></select></div>
+    <div class="row">자동 표지 검색<button id="pAuto"></button></div>
+    <div class="row">표지 크기<button id="pSize"></button></div>
+    <div class="row">표지 다시 만들기<button id="pRebuild">실행</button></div>
     <div class="row">앱 버전 <span id="ver"></span><button id="updBtn">업데이트 확인</button></div>
     <button class="btn" id="closeP">닫기</button>
   </div>
+  
+<section id="reader" hidden>
+  <div id="top" class="bar"><button id="back">←</button><span id="title"></span><button id="bmBtn">★</button><button id="listBtn">목록</button><button id="setBtn">Aa</button></div>
+  <div id="stage"><div id="viewer"></div><div id="txt" hidden><div id="txtin"></div></div>
+    <div class="zone l" data-d="-1"></div><div class="zone c"></div><div class="zone r" data-d="1"></div></div>
+  <div id="bottom" class="bar"><input id="seek" type="range" min="0" max="1000" value="0"><span id="pct">0%</span></div>
   <div id="list" class="sheet" hidden><h3>목차 / 북마크</h3><div id="listbody"></div><button class="btn" id="closeL">닫기</button></div>
 </section>
 <script src="jszip.min.js"></script><script src="epub.min.js"></script><script src="app.js"></script>
