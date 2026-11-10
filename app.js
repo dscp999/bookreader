@@ -17,8 +17,8 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=7;
-const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto'},JSON.parse(localStorage.getItem('rs')||'{}'));
+const APP_NUM=8;
+const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
 applyTheme();
@@ -28,9 +28,12 @@ const saveBM=()=>localStorage.setItem('b_'+cur.id,JSON.stringify(cur.bookmarks||
 // ---- library ----
 let view=localStorage.getItem('view')||'shelf',sortBy=localStorage.getItem('sort')||'recent',editMode=false,coverBusy=false;
 function hueOf(s){let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))%360;return h}
+const STY=[['#8e2de2','#4a00e0'],['#c31432','#240b36'],['#134e5e','#71b280'],['#d38312','#a83279'],['#1e3c72','#2a5298'],['#0f2027','#2c5364'],['#614385','#516395'],['#b92b27','#1565c0'],['#4b6cb7','#182848'],['#3a1c71','#d76d77'],['#355c7d','#c06c84'],['#232526','#5a5a5a']];
+function styBg(n){const s=STY[n%STY.length];return 'linear-gradient(135deg,'+s[0]+','+s[1]+')'}
 function coverEl(b){
   const d=document.createElement('div');d.className='cover';const c=localStorage.getItem('c_'+b.id);
-  if(c&&c!=='none'&&c!=='x'){d.style.backgroundImage='url("'+c+'")';d.classList.add('img')}
+  if(c&&c.startsWith('style:')){d.style.background=styBg(+c.slice(6));d.classList.add('fr');const s=document.createElement('span');s.textContent=b.title;d.appendChild(s)}
+  else if(c&&c!=='none'&&c!=='x'){d.style.backgroundImage='url("'+c+'")';d.classList.add('img')}
   else{const h=hueOf(b.title);d.style.background='linear-gradient(135deg,hsl('+h+',45%,38%),hsl('+((h+30)%360)+',50%,22%))';const s=document.createElement('span');s.textContent=b.title;d.appendChild(s)}
   return d;
 }
@@ -90,35 +93,35 @@ async function ensureCovers(books){
 }
 // ---- manual cover picker ----
 let covBook=null;
-function openCov(b){covBook=b;$('#cov').hidden=false;$('#covT').textContent='표지 찾기 · '+b.title;$('#covQ').value=cleanTitle(b.title)||b.title;$('#covRes').innerHTML='';$('#covGo').click()}
+function openCov(b){covBook=b;$('#cov').hidden=false;$('#act').hidden=true;$('#covT').textContent='표지 선택 · '+b.title;buildStyles();$('#covQ').value=cleanTitle(b.title)||b.title;$('#covRes').innerHTML='';$('#covGo').click()}
 $('#covGo').onclick=async()=>{
   const q=$('#covQ').value.trim();if(!q)return;$('#covMsg').textContent='검색 중...';$('#covRes').innerHTML='';
   const {list,netErr}=await searchCovers(q);
   $('#covMsg').textContent=list.length?'표지를 눌러 적용하세요 ('+list.length+'건)':(netErr?'결과가 없어요. 일부 검색 서버가 응답하지 않을 수 있으니 제목을 바꾸거나 잠시 후 다시 시도하세요.':'결과가 없어요. 제목을 바꿔서 검색해 보세요.');
   for(const r of list){const f=document.createElement('figure');f.innerHTML='<img loading="lazy"><figcaption></figcaption>';f.querySelector('img').src=r.url;f.querySelector('figcaption').textContent=r.title;
-    f.onclick=async()=>{$('#covMsg').textContent='적용 중...';const u=await urlToCover(r.url);try{localStorage.setItem('c_'+covBook.id,u)}catch(_){}$('#cov').hidden=true;renderLib(true)};$('#covRes').appendChild(f)}
+    f.onclick=async()=>{$('#covMsg').textContent='적용 중...';const u=await urlToCover(r.url);setCover(covBook.id,u,true);$('#cov').hidden=true;renderLib(true)};$('#covRes').appendChild(f)}
 };
 $('#covQ').addEventListener('keydown',e=>{if(e.key==='Enter')$('#covGo').click()});
 $('#covClose').onclick=()=>$('#cov').hidden=true;
-$('#covDel').onclick=()=>{localStorage.setItem('c_'+covBook.id,'x');$('#cov').hidden=true;renderLib(true)};
-$('#covFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{const u=await blobToCover(f);localStorage.setItem('c_'+covBook.id,u)}catch(_){alert('이미지를 불러오지 못했어요')}$('#cov').hidden=true;renderLib(true)};
+$('#covDel').onclick=()=>{setCover(covBook.id,'x',false);$('#cov').hidden=true;renderLib(true)};
+$('#covFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;try{const u=await blobToCover(f);setCover(covBook.id,u,true)}catch(_){alert('이미지를 불러오지 못했어요')}$('#cov').hidden=true;renderLib(true)};
 $('#autoBtn').onclick=()=>{localStorage.setItem('autocover',autoOn()?'0':'1');triedSess.clear();renderLib(true)};
 let libCache=[];
 async function renderLib(useCache){
   if(!useCache)libCache=await dbAll();
   const books=libCache.map(b=>{const p=getP(b.id);return Object.assign({},b,{pct:p?p.pct||0:0,opened:+localStorage.getItem('o_'+b.id)||0})});
   books.sort((a,b)=>sortBy==='title'?a.title.localeCompare(b.title,'ko'):sortBy==='pct'?b.pct-a.pct:sortBy==='added'?b.added-a.added:(b.opened-a.opened)||(b.added-a.added));
-  $('#sort').value=sortBy;$('#viewBtn').textContent=view==='shelf'?'목록':'책꽂이';$('#editBtn').textContent=editMode?'완료':'편집';$('#autoBtn').hidden=!editMode;$('#updBtn2').hidden=!editMode;$('#autoBtn').textContent='자동표지: '+(autoOn()?'켬':'끔');
+  $('#sort').value=sortBy;$('#viewBtn').textContent=view==='shelf'?'목록':'책꽂이';$('#editBtn').textContent=editMode?'완료':'편집';$('#autoBtn').hidden=!editMode;$('#sizeBtn').hidden=!editMode;$('#rebuildBtn').hidden=!editMode;$('#sizeBtn').textContent='표지 크기: '+({S:'작게',M:'보통',L:'크게'})[S.coverSize];$('#updBtn2').hidden=!editMode;$('#autoBtn').textContent='자동표지: '+(autoOn()?'켬':'끔');
   $('#empty').hidden=books.length>0;const g=$('#grid');g.innerHTML='';g.className=view;
   const tagOf=b=>{const t=document.createElement('div');t.className='tag'+(b.pct<=0&&!b.opened?' new':'');t.textContent=b.pct<=0&&!b.opened?'NEW':Math.round(b.pct*100)+'%';return t};
   const covBtn=b=>{const x=document.createElement('button');x.className='cb';x.textContent=view==='shelf'?'표':'표지';x.onclick=e=>{e.stopPropagation();openCov(b)};return x};
-  const delBtn=b=>{const x=document.createElement('button');x.className='del';x.textContent='×';x.onclick=async e=>{e.stopPropagation();if(confirm('"'+b.title+'" 삭제할까요?')){await dbDel(b.id);['p_','b_','c_','o_'].forEach(k=>localStorage.removeItem(k+b.id));renderLib()}};return x};
+  const delBtn=b=>{const x=document.createElement('button');x.className='del';x.textContent='×';x.onclick=e=>{e.stopPropagation();deleteBook(b)};return x};
   if(view==='shelf'){
-    const cols=Math.max(3,Math.floor((g.clientWidth||innerWidth-12)/112));g.style.gridTemplateColumns='repeat('+cols+',1fr)';
+    const bw=({S:70,M:92,L:124})[S.coverSize]||92;g.style.setProperty('--bw',bw+'px');const cols=Math.max(2,Math.floor((g.clientWidth||innerWidth-12)/(bw+20)));g.style.gridTemplateColumns='repeat('+cols+',1fr)';
     for(const b of books){
       const s=document.createElement('div');s.className='slot';const k=document.createElement('div');k.className='bk';
       k.appendChild(coverEl(b));k.appendChild(tagOf(b));if(editMode){k.appendChild(delBtn(b));k.appendChild(covBtn(b))}
-      k.onclick=()=>openBook(b.id);s.appendChild(k);g.appendChild(s)}
+      bindBook(k,b);s.appendChild(k);g.appendChild(s)}
     const rows=Math.max(4,Math.ceil(books.length/cols));for(let i=books.length;i<rows*cols;i++){const s=document.createElement('div');s.className='slot';g.appendChild(s)}
   }else{
     g.style.gridTemplateColumns='';
@@ -127,7 +130,7 @@ async function renderLib(useCache){
       const inf=document.createElement('div');inf.className='info';inf.innerHTML='<b></b><small></small><div class="bar2"><i></i></div>';
       inf.querySelector('b').textContent=b.title;inf.querySelector('small').textContent=b.type.toUpperCase()+' · '+Math.round(b.pct*100)+'%'+(b.opened?' · '+new Date(b.opened).toLocaleDateString('ko-KR'):' · 새 책');
       inf.querySelector('i').style.width=Math.round(b.pct*100)+'%';d.appendChild(inf);if(editMode){d.appendChild(covBtn(b));d.appendChild(delBtn(b))}
-      d.onclick=()=>openBook(b.id);g.appendChild(d)}
+      bindBook(d,b);g.appendChild(d)}
   }
   ensureCovers(books);
 }
@@ -324,3 +327,31 @@ async function checkUpdate(){
   }catch(e){alert('업데이트를 확인하지 못했어요. 인터넷 연결을 확인하세요.')}
 }
 $('#updBtn').onclick=checkUpdate;$('#updBtn2').onclick=checkUpdate;
+
+// ---- Moon+ style: long-press menu, built-in covers, rebuild, size ----
+function setCover(id,u,lock){try{localStorage.setItem('c_'+id,u)}catch(_){alert('저장 공간이 부족해요');return}if(lock)localStorage.setItem('k_'+id,'1');else localStorage.removeItem('k_'+id)}
+function buildStyles(){const box=$('#covStyles');box.innerHTML='';STY.forEach((s,i)=>{const d=document.createElement('div');d.className='sty';d.style.background=styBg(i);d.onclick=()=>{setCover(covBook.id,'style:'+i,true);$('#cov').hidden=true;renderLib(true)};box.appendChild(d)})}
+$('#covAuto').onclick=()=>{localStorage.removeItem('c_'+covBook.id);localStorage.removeItem('k_'+covBook.id);triedSess.delete(covBook.id);$('#cov').hidden=true;renderLib(true)};
+async function deleteBook(b){if(!confirm('"'+b.title+'" 삭제할까요?'))return;await dbDel(b.id);['p_','b_','c_','o_','k_'].forEach(k=>localStorage.removeItem(k+b.id));$('#act').hidden=true;renderLib()}
+function openAct(b){
+  $('#actT').textContent=b.title;const body=$('#actBody');body.innerHTML='';
+  const add=(label,fn,cls)=>{const x=document.createElement('button');x.textContent=label;if(cls)x.className=cls;x.onclick=fn;body.appendChild(x)};
+  add('열기',()=>{$('#act').hidden=true;openBook(b.id)});
+  add('표지 선택...',()=>openCov(b));
+  add('표지 자동으로 다시 만들기',()=>{localStorage.removeItem('c_'+b.id);localStorage.removeItem('k_'+b.id);triedSess.delete(b.id);$('#act').hidden=true;renderLib(true)});
+  add('이름 바꾸기',async()=>{const t=prompt('책 이름',b.title);if(t&&t.trim()){const m=libCache.find(x=>x.id===b.id);if(m){m.title=t.trim();await dbPut(m)}$('#act').hidden=true;renderLib(true)}});
+  add('삭제',()=>deleteBook(b),'danger');
+  add('닫기',()=>$('#act').hidden=true);
+  $('#act').hidden=false;
+}
+function bindBook(el,b){
+  let t=null;const stop=()=>{clearTimeout(t);t=null};
+  const fire=()=>{el._lp=true;setTimeout(()=>el._lp=false,700);openAct(b)};
+  el.addEventListener('touchstart',()=>{stop();t=setTimeout(()=>{t=null;if(navigator.vibrate)navigator.vibrate(15);fire()},550)},{passive:true});
+  ['touchend','touchmove','touchcancel'].forEach(ev=>el.addEventListener(ev,stop,{passive:true}));
+  el.addEventListener('contextmenu',e=>{e.preventDefault();stop();if(!el._lp)fire()});
+  el.onclick=()=>{if(el._lp)return;openBook(b.id)};
+}
+$('#rebuildBtn').onclick=()=>{if(!confirm('직접 고른 표지를 제외한 모든 표지를 다시 만들까요?'))return;
+  for(const b of libCache){if(localStorage.getItem('k_'+b.id)!=='1')localStorage.removeItem('c_'+b.id)}triedSess.clear();toast('표지를 다시 만드는 중...');renderLib(true)};
+$('#sizeBtn').onclick=()=>{S.coverSize=S.coverSize==='M'?'L':S.coverSize==='L'?'S':'M';saveS();renderLib(true)};
