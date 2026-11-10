@@ -1,0 +1,391 @@
+name: build-android-apk
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-apk.yml'
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Generate Android project
+        run: |
+          set -e
+          mkdir -p native
+          cd native
+          mkdir -p .
+          cat > settings.gradle <<'EOF_FILE'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = 'BookReader'
+          include ':app'
+          EOF_FILE
+          mkdir -p .
+          cat > build.gradle <<'EOF_FILE'
+          plugins {
+              id 'com.android.application' version '8.3.2' apply false
+          }
+          EOF_FILE
+          mkdir -p .
+          cat > gradle.properties <<'EOF_FILE'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          android.useAndroidX=false
+          EOF_FILE
+          mkdir -p app
+          cat > app/build.gradle <<'EOF_FILE'
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'io.github.dscp999.bookreaderapp'
+              compileSdk 34
+              defaultConfig {
+                  applicationId 'io.github.dscp999.bookreaderapp'
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName '1.0'
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF_FILE
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'EOF_FILE'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application
+                  android:label="북리더"
+                  android:icon="@mipmap/ic_launcher"
+                  android:allowBackup="true"
+                  android:usesCleartextTraffic="false"
+                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:windowSoftInputMode="adjustResize"
+                      android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|smallestScreenSize|screenLayout|uiMode|density|layoutDirection">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <activity
+                      android:name=".CoverSearchActivity"
+                      android:exported="false"
+                      android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|smallestScreenSize|screenLayout|uiMode|density|layoutDirection" />
+              </application>
+          </manifest>
+          EOF_FILE
+          mkdir -p app/src/main/java/io/github/dscp999/bookreaderapp
+          cat > app/src/main/java/io/github/dscp999/bookreaderapp/MainActivity.java <<'EOF_FILE'
+          package io.github.dscp999.bookreaderapp;
+
+          import android.app.Activity;
+          import android.content.ClipData;
+          import android.content.Intent;
+          import android.graphics.Color;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import org.json.JSONObject;
+
+          public class MainActivity extends Activity {
+              static final String HOME = "https://dscp999.github.io/bookreader/";
+              static final int REQ_FILE = 1;
+              static final int REQ_COVER = 2;
+              WebView web;
+              ValueCallback<Uri[]> fileCb;
+
+              @Override
+              protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  getWindow().setStatusBarColor(Color.parseColor("#1c1c1e"));
+                  getWindow().setNavigationBarColor(Color.parseColor("#1c1c1e"));
+                  web = new WebView(this);
+                  web.setBackgroundColor(Color.parseColor("#1c1c1e"));
+                  setContentView(web);
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setAllowFileAccess(false);
+                  s.setAllowContentAccess(true);
+                  web.addJavascriptInterface(new Bridge(), "Android");
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                          Uri u = r.getUrl();
+                          if ("dscp999.github.io".equals(u.getHost())) return false;
+                          try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception e) { }
+                          return true;
+                      }
+                  });
+                  web.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> cb, FileChooserParams p) {
+                          if (fileCb != null) fileCb.onReceiveValue(null);
+                          fileCb = cb;
+                          Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                          i.addCategory(Intent.CATEGORY_OPENABLE);
+                          String[] acc = p.getAcceptTypes();
+                          boolean img = acc != null && acc.length > 0 && acc[0] != null && acc[0].startsWith("image/");
+                          i.setType(img ? "image/*" : "*/*");
+                          i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, p.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
+                          try {
+                              startActivityForResult(Intent.createChooser(i, "파일 선택"), REQ_FILE);
+                          } catch (Exception e) {
+                              fileCb = null;
+                              return false;
+                          }
+                          return true;
+                      }
+                  });
+                  web.loadUrl(HOME);
+              }
+
+              class Bridge {
+                  @JavascriptInterface
+                  public void openCoverSearch(final String id, final String query) {
+                      runOnUiThread(new Runnable() {
+                          public void run() {
+                              Intent i = new Intent(MainActivity.this, CoverSearchActivity.class);
+                              i.putExtra("id", id);
+                              i.putExtra("q", query);
+                              startActivityForResult(i, REQ_COVER);
+                          }
+                      });
+                  }
+              }
+
+              @Override
+              protected void onActivityResult(int req, int res, Intent data) {
+                  super.onActivityResult(req, res, data);
+                  if (req == REQ_FILE) {
+                      Uri[] out = null;
+                      if (res == RESULT_OK && data != null) {
+                          ClipData cd = data.getClipData();
+                          if (cd != null) {
+                              out = new Uri[cd.getItemCount()];
+                              for (int k = 0; k < out.length; k++) out[k] = cd.getItemAt(k).getUri();
+                          } else if (data.getData() != null) {
+                              out = new Uri[]{data.getData()};
+                          }
+                      }
+                      if (fileCb != null) fileCb.onReceiveValue(out);
+                      fileCb = null;
+                  } else if (req == REQ_COVER && res == RESULT_OK && data != null) {
+                      String id = data.getStringExtra("id");
+                      String d = CoverSearchActivity.resultData;
+                      if (id != null && d != null) {
+                          web.evaluateJavascript("window.onNativeCover&&window.onNativeCover(" + JSONObject.quote(id) + "," + JSONObject.quote(d) + ")", null);
+                      }
+                      CoverSearchActivity.resultData = null;
+                  }
+              }
+
+              @Override
+              public void onBackPressed() {
+                  web.evaluateJavascript("(window.__onBack?window.__onBack():false)", new ValueCallback<String>() {
+                      public void onReceiveValue(String v) {
+                          if (!"true".equals(v)) finish();
+                      }
+                  });
+              }
+          }
+          EOF_FILE
+          mkdir -p app/src/main/java/io/github/dscp999/bookreaderapp
+          cat > app/src/main/java/io/github/dscp999/bookreaderapp/CoverSearchActivity.java <<'EOF_FILE'
+          package io.github.dscp999.bookreaderapp;
+
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.graphics.Bitmap;
+          import android.graphics.BitmapFactory;
+          import android.graphics.Color;
+          import android.os.Bundle;
+          import android.util.Base64;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+          import android.widget.Toast;
+          import java.io.ByteArrayOutputStream;
+          import java.io.InputStream;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.net.URLEncoder;
+
+          public class CoverSearchActivity extends Activity {
+              static String resultData;
+              WebView web;
+              String id;
+              String ua = "";
+
+              int dp(int v) {
+                  return Math.round(v * getResources().getDisplayMetrics().density);
+              }
+
+              @Override
+              protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  getWindow().setStatusBarColor(Color.parseColor("#2a1a0f"));
+                  getWindow().setNavigationBarColor(Color.parseColor("#2a1a0f"));
+                  id = getIntent().getStringExtra("id");
+                  String q = getIntent().getStringExtra("q");
+                  if (q == null) q = "";
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setBackgroundColor(Color.parseColor("#2a1a0f"));
+                  LinearLayout bar = new LinearLayout(this);
+                  bar.setOrientation(LinearLayout.HORIZONTAL);
+                  bar.setGravity(Gravity.CENTER_VERTICAL);
+                  bar.setPadding(dp(14), dp(6), dp(8), dp(6));
+                  TextView tv = new TextView(this);
+                  tv.setText("표지로 쓸 이미지를 길게 누르세요");
+                  tv.setTextColor(Color.WHITE);
+                  tv.setTextSize(15);
+                  bar.addView(tv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                  Button close = new Button(this);
+                  close.setText("닫기");
+                  close.setOnClickListener(new View.OnClickListener() {
+                      public void onClick(View v) { finish(); }
+                  });
+                  bar.addView(close);
+                  root.addView(bar);
+                  web = new WebView(this);
+                  root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+                  setContentView(root);
+                  WebSettings s = web.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  ua = s.getUserAgentString();
+                  web.setWebViewClient(new WebViewClient());
+                  web.setOnLongClickListener(new View.OnLongClickListener() {
+                      public boolean onLongClick(View v) {
+                          WebView.HitTestResult r = web.getHitTestResult();
+                          int t = r.getType();
+                          String u = r.getExtra();
+                          if ((t == WebView.HitTestResult.IMAGE_TYPE || t == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) && u != null) {
+                              pick(u);
+                              return true;
+                          }
+                          return false;
+                      }
+                  });
+                  try {
+                      web.loadUrl("https://www.google.com/search?tbm=isch&hl=ko&q=" + URLEncoder.encode(q + " 책 표지", "UTF-8"));
+                  } catch (Exception e) {
+                      web.loadUrl("https://www.google.com/imghp?hl=ko");
+                  }
+              }
+
+              void pick(final String u) {
+                  Toast.makeText(this, "표지 적용 중...", Toast.LENGTH_SHORT).show();
+                  new Thread(new Runnable() {
+                      public void run() {
+                          try {
+                              byte[] data;
+                              if (u.startsWith("data:")) {
+                                  int i = u.indexOf(',');
+                                  data = Base64.decode(u.substring(i + 1), Base64.DEFAULT);
+                              } else {
+                                  data = download(u);
+                              }
+                              Bitmap bm = BitmapFactory.decodeByteArray(data, 0, data.length);
+                              if (bm == null) throw new Exception("decode");
+                              int w = 240;
+                              int h = Math.max(1, Math.round(bm.getHeight() * 240f / bm.getWidth()));
+                              Bitmap sc = Bitmap.createScaledBitmap(bm, w, h, true);
+                              ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                              sc.compress(Bitmap.CompressFormat.JPEG, 85, bo);
+                              resultData = "data:image/jpeg;base64," + Base64.encodeToString(bo.toByteArray(), Base64.NO_WRAP);
+                              runOnUiThread(new Runnable() {
+                                  public void run() {
+                                      setResult(RESULT_OK, new Intent().putExtra("id", id));
+                                      finish();
+                                  }
+                              });
+                          } catch (Exception e) {
+                              runOnUiThread(new Runnable() {
+                                  public void run() {
+                                      Toast.makeText(CoverSearchActivity.this, "이미지를 가져오지 못했어요. 다른 이미지를 눌러 보세요", Toast.LENGTH_SHORT).show();
+                                  }
+                              });
+                          }
+                      }
+                  }).start();
+              }
+
+              byte[] download(String u) throws Exception {
+                  if (u.startsWith("http:")) u = "https:" + u.substring(5);
+                  if (u.startsWith("//")) u = "https:" + u;
+                  HttpURLConnection c = (HttpURLConnection) new URL(u).openConnection();
+                  c.setConnectTimeout(10000);
+                  c.setReadTimeout(15000);
+                  c.setInstanceFollowRedirects(true);
+                  c.setRequestProperty("User-Agent", ua);
+                  c.setRequestProperty("Referer", "https://www.google.com/");
+                  InputStream in = c.getInputStream();
+                  ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                  byte[] buf = new byte[8192];
+                  int n;
+                  int total = 0;
+                  while ((n = in.read(buf)) > 0) {
+                      bo.write(buf, 0, n);
+                      total += n;
+                      if (total > 12 * 1024 * 1024) throw new Exception("too big");
+                  }
+                  in.close();
+                  return bo.toByteArray();
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (web.canGoBack()) web.goBack();
+                  else finish();
+              }
+          }
+          EOF_FILE
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
+          curl -fsSL -o app/src/main/res/mipmap-xxxhdpi/ic_launcher.png https://dscp999.github.io/bookreader/icon-192.png
+      - name: Build debug APK
+        working-directory: native
+        run: gradle assembleDebug --no-daemon --stacktrace
+      - name: Rename APK
+        run: cp native/app/build/outputs/apk/debug/app-debug.apk bookreader-native.apk
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: native-latest
+          name: Native APK (latest)
+          files: bookreader-native.apk
