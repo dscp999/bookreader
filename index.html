@@ -6,8 +6,8 @@
 <title>북리더</title><link rel="stylesheet" href="style.css"></head>
 <body class="t-dark">
 <section id="lib">
-  <header><h1>내 서재</h1><label class="btn">+ 책 추가<input id="file" type="file" accept=".epub,.txt,application/epub+zip,text/plain" multiple hidden></label></header>
-  <div id="grid"></div>
+  <header><h1>내 책꽂이</h1><div class="hb"><select id="sort"><option value="recent">최근 읽은 순</option><option value="added">추가한 순</option><option value="title">제목 순</option><option value="pct">진행률 순</option></select><button id="viewBtn">목록</button><button id="editBtn">편집</button><label class="btn plus">+ 책 추가<input id="file" type="file" accept=".epub,.txt,application/epub+zip,text/plain" multiple hidden></label></div></header>
+  <div id="grid" class="shelf"></div>
   <p id="empty">EPUB 또는 TXT 파일을 추가하세요.<br>한글 TXT(EUC-KR/UTF-8)는 자동 인식됩니다.</p>
 </section>
 <section id="reader" hidden>
