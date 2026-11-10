@@ -11,8 +11,12 @@
   <p id="empty">EPUB 또는 TXT 파일을 추가하세요.<br>한글 TXT(EUC-KR/UTF-8)는 자동 인식됩니다.</p>
 </section>
 <div id="cov" class="sheet fx" hidden><h3 id="covT">표지 선택</h3>
+ <div class="lbl">Google 이미지에서 고르기</div>
+ <div class="row"><button id="covG" class="prim">Google 이미지 열기</button><button id="covPaste" class="prim">복사한 이미지 붙여넣기</button></div>
+ <div class="row"><input id="covUrl" type="text" placeholder="이미지 주소(URL) 붙여넣기"><button id="covUrlGo">적용</button></div>
+ <div class="msg">구글 이미지에서 원하는 표지를 길게 눌러 <b>이미지 복사</b>(또는 이미지 주소 복사)한 뒤, 이 앱으로 돌아오면 자동으로 적용돼요. 안 되면 위 붙여넣기 버튼을 누르세요.</div>
  <div class="lbl">내장 표지</div><div id="covStyles" class="covres small"></div>
- <div class="lbl">인터넷에서 검색</div>
+ <div class="lbl">자동 검색 결과 (Google Books 등)</div>
  <div class="row"><input id="covQ" type="text" placeholder="책 제목"><button id="covGo">검색</button></div>
  <div id="covMsg" class="msg"></div><div id="covRes" class="covres"></div>
  <div class="row"><label class="btn">내 이미지 선택<input id="covFile" type="file" accept="image/*" hidden></label><button id="covAuto">자동으로 다시 찾기</button><button id="covDel">기본 표지</button><button id="covClose">닫기</button></div></div>

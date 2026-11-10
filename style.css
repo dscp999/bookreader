@@ -69,3 +69,5 @@ h1{margin:0;font-size:22px;text-shadow:0 2px 4px #0008}
 #act h3{margin:0 0 10px;font-size:16px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 #act button{display:block;width:100%;text-align:left;padding:13px 10px;margin:0;background:transparent;color:#f3e3cf;border:0;border-bottom:1px solid #f3e3cf22;font-size:16px;border-radius:0}
 #act button.danger{color:#ff8d80}
+
+#cov{max-height:88%;overflow:auto}#cov button.prim{background:#c98a3e!important;color:#2a1a0f!important;border-color:#c98a3e!important;font-weight:700}#cov .msg b{color:#ffd58a}

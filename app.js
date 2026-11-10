@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=8;
+const APP_NUM=9;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
@@ -355,3 +355,32 @@ function bindBook(el,b){
 $('#rebuildBtn').onclick=()=>{if(!confirm('직접 고른 표지를 제외한 모든 표지를 다시 만들까요?'))return;
   for(const b of libCache){if(localStorage.getItem('k_'+b.id)!=='1')localStorage.removeItem('c_'+b.id)}triedSess.clear();toast('표지를 다시 만드는 중...');renderLib(true)};
 $('#sizeBtn').onclick=()=>{S.coverSize=S.coverSize==='M'?'L':S.coverSize==='L'?'S':'M';saveS();renderLib(true)};
+
+// ---- Moon+ style: pick cover from Google Images (via clipboard / URL) ----
+let gOpened=false;
+function covDone(u){setCover(covBook.id,u,true);$('#cov').hidden=true;gOpened=false;renderLib(true);toast('표지를 적용했어요')}
+async function applyUrl(url){
+  $('#covMsg').textContent='이미지 불러오는 중...';
+  const u=await urlToCover(url);
+  if(u.startsWith('data:')){covDone(u);return true}
+  const ok=await new Promise(r=>{const im=new Image();im.onload=()=>r(true);im.onerror=()=>r(false);im.src=u;setTimeout(()=>r(false),8000)});
+  if(ok){covDone(u);return true}
+  $('#covMsg').textContent='이미지를 불러오지 못했어요. 다른 이미지를 복사해 보세요.';return false;
+}
+async function pasteCover(silent){
+  try{
+    const items=await navigator.clipboard.read();
+    for(const it of items){const t=it.types.find(x=>x.startsWith('image/'));
+      if(t){const bl=await it.getType(t);covDone(await blobToCover(bl));return true}}
+    for(const it of items){if(it.types.includes('text/plain')){const tx=(await (await it.getType('text/plain')).text()).trim();if(/^https?:\/\/\S+$/.test(tx))return await applyUrl(tx)}}
+    if(!silent)$('#covMsg').textContent='클립보드에 이미지가 없어요. 구글 이미지에서 이미지를 길게 눌러 "이미지 복사"를 하세요.';
+  }catch(e){if(!silent)$('#covMsg').textContent='클립보드를 읽을 수 없어요. 권한을 허용하거나 아래에 이미지 주소를 붙여넣으세요.'}
+  return false;
+}
+$('#covG').onclick=()=>{const q=(cleanTitle(covBook.title)||covBook.title)+' 책 표지';gOpened=true;
+  $('#covMsg').textContent='구글 이미지에서 표지를 길게 눌러 "이미지 복사" 후 이 앱으로 돌아오세요.';
+  window.open('https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q),'_blank')};
+$('#covPaste').onclick=()=>pasteCover(false);
+$('#covUrlGo').onclick=()=>{const v=$('#covUrl').value.trim();if(/^https?:\/\//.test(v))applyUrl(v);else $('#covMsg').textContent='http로 시작하는 이미지 주소를 입력하세요.'};
+const backFromGoogle=()=>{if(gOpened&&!document.hidden&&!$('#cov').hidden)setTimeout(()=>pasteCover(true),300)};
+document.addEventListener('visibilitychange',backFromGoogle);window.addEventListener('focus',backFromGoogle);
