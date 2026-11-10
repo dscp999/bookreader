@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=19;
+const APP_NUM=20;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
@@ -466,7 +466,7 @@ async function consumeShared(){
 
 // ---- settings button on library screen ----
 const SZ={S:'작게',M:'보통',L:'크게'};
-function syncLibPanel(){updateStat();$('#pAuto').textContent=autoOn()?'켬':'끔';$('#pSize').textContent=SZ[S.coverSize]||'보통'}
+function syncLibPanel(){updateStat();syncShelfColorSel();$('#pAuto').textContent=autoOn()?'켬':'끔';$('#pSize').textContent=SZ[S.coverSize]||'보통'}
 $('#setLibBtn').onclick=()=>{syncUI();syncLibPanel();$('#list').hidden=true;$('#panel').hidden=false};
 $('#setBtn').addEventListener('click',syncLibPanel);
 $('#pAuto').onclick=()=>{localStorage.setItem('autocover',autoOn()?'0':'1');triedSess.clear();syncLibPanel();renderLib(true)};
@@ -509,13 +509,13 @@ const uiConfirm=m=>uiDlg(m),uiPrompt=(m,v)=>uiDlg(m,{input:v||''}),uiAlert=m=>ui
 // ---- 4 separate bookshelves ----
 function shelfNames(){try{const a=JSON.parse(localStorage.getItem('shelfNames')||'null');if(Array.isArray(a)&&a.length===4)return a}catch(_){}return ['책장 1','책장 2','책장 3','책장 4']}
 function renderShelfTabs(counts){
-  const box=$('#shelfTabs');if(!box)return;const names=shelfNames();box.innerHTML='';
+  applyShelfTheme();const box=$('#shelfTabs');if(!box)return;const names=shelfNames();box.innerHTML='';
   names.forEach((n,i)=>{const b=document.createElement('button');b.className='stab'+(i===curShelf?' on':'');b.innerHTML='<span></span><small></small>';
     b.firstChild.textContent=n;b.lastChild.textContent=counts[i]+'권';
     let t=null,lp=false;const stop=()=>{clearTimeout(t);t=null};
-    b.addEventListener('touchstart',()=>{lp=false;stop();t=setTimeout(()=>{lp=true;setTimeout(()=>lp=false,800);renameShelf(i)},600)},{passive:true});
+    b.addEventListener('touchstart',()=>{lp=false;stop();t=setTimeout(()=>{lp=true;setTimeout(()=>lp=false,800);openShelfMenu(i)},600)},{passive:true});
     ['touchend','touchmove','touchcancel'].forEach(ev=>b.addEventListener(ev,stop,{passive:true}));
-    b.addEventListener('contextmenu',e=>{e.preventDefault();stop();lp=true;setTimeout(()=>lp=false,800);renameShelf(i)});
+    b.addEventListener('contextmenu',e=>{e.preventDefault();stop();lp=true;setTimeout(()=>lp=false,800);openShelfMenu(i)});
     b.onclick=()=>{if(lp)return;curShelf=i;localStorage.setItem('curShelf',i);editMode=false;renderLib(true)};
     box.appendChild(b)});
 }
@@ -526,3 +526,37 @@ function pickShelf(b){
   names.forEach((n,i)=>{if(i===((b.shelf||0)%4))return;const x=document.createElement('button');x.textContent=n;
     x.onclick=async()=>{const m=libCache.find(y=>y.id===b.id);if(m){m.shelf=i;await dbPut(m)}$('#act').hidden=true;renderLib(true);toast(n+'(으)로 옮겼어요')};body.appendChild(x)});
   const c=document.createElement('button');c.textContent='취소';c.onclick=()=>$('#act').hidden=true;body.appendChild(c);$('#act').hidden=false}
+
+// ---- per-shelf colors ----
+const dk=(w1,w2,b1,b2,b3,ac)=>({'--wall1':w1,'--wall2':w2,'--b1':b1,'--b2':b2,'--b3':b3,'--accent':ac,'--accentfg':'#1a1a1a','--fg':'#f3e3cf','--fgdim':'#f3e3cf99','--btn':'#0005','--bd':'#f3e3cf44','--card':'#0004'});
+const SHELF_THEMES={
+  wood:{n:'원목 (기본)',v:dk('#4a3120','#2a1a0f','#b87a3a','#7a4a21','#5a3416','#c98a3e')},
+  light:{n:'밝은 원목',v:dk('#8a6a4a','#5a4030','#e0b278','#b98a4f','#8d6537','#e8bd84')},
+  black:{n:'블랙',v:dk('#2b2b2e','#0f0f11','#6b6b70','#45454a','#2c2c30','#9a9aa0')},
+  navy:{n:'네이비',v:dk('#2a3f66','#0f1a33','#5d7fb8','#3d5a8f','#27406b','#7aa2e0')},
+  green:{n:'숲 초록',v:dk('#2f5a43','#12281c','#6fa07f','#4a7a5a','#325a40','#8ccaa0')},
+  wine:{n:'와인',v:dk('#6a2a38','#2e0f17','#b0586d','#823a4b','#5c2634','#e08aa0')},
+  purple:{n:'보라',v:dk('#4b3470','#1f1433','#8b6cc0','#634a96','#46346c','#b79ce6')},
+  gray:{n:'회색',v:dk('#55595f','#26292d','#a1a6ad','#7a7f86','#5a5e64','#c3c8cf')},
+  white:{n:'화이트',v:{'--wall1':'#f6f3ee','--wall2':'#d9d3c7','--b1':'#d3c5ab','--b2':'#b3a384','--b3':'#8f8164','--accent':'#b07a33','--accentfg':'#ffffff','--fg':'#3a2e22','--fgdim':'#3a2e2299','--btn':'#ffffff99','--bd':'#3a2e2244','--card':'#ffffff88'}}
+};
+function shelfColors(){try{const a=JSON.parse(localStorage.getItem('shelfColors')||'null');if(Array.isArray(a)&&a.length===4)return a}catch(_){}return ['wood','wood','wood','wood']}
+function applyShelfTheme(){const id=shelfColors()[curShelf];const t=SHELF_THEMES[id]||SHELF_THEMES.wood;const L=$('#lib');if(!L)return;for(const k in t.v)L.style.setProperty(k,t.v[k])}
+function setShelfColor(i,id){const a=shelfColors();a[i]=id;localStorage.setItem('shelfColors',JSON.stringify(a));renderLib(true)}
+function openShelfMenu(i){
+  const names=shelfNames();$('#actT').textContent=names[i];const body=$('#actBody');body.innerHTML='';
+  const add=(l,fn)=>{const x=document.createElement('button');x.textContent=l;x.onclick=fn;body.appendChild(x)};
+  add('이름 바꾸기',()=>{$('#act').hidden=true;renameShelf(i)});
+  add('색 바꾸기...',()=>pickShelfColor(i));
+  add('닫기',()=>$('#act').hidden=true);$('#act').hidden=false;
+}
+function pickShelfColor(i){
+  const names=shelfNames();$('#actT').textContent=names[i]+' 색';const body=$('#actBody');body.innerHTML='';
+  const g=document.createElement('div');g.className='swgrid';const cur=shelfColors()[i];
+  for(const id in SHELF_THEMES){const t=SHELF_THEMES[id];const x=document.createElement('button');x.className='sw'+(id===cur?' on':'');
+    x.innerHTML='<i></i><span></span>';x.firstChild.style.background='linear-gradient(135deg,'+t.v['--wall1']+','+t.v['--wall2']+')';x.firstChild.style.borderBottom='6px solid '+t.v['--b2'];x.lastChild.textContent=t.n;
+    x.onclick=()=>{$('#act').hidden=true;setShelfColor(i,id)};g.appendChild(x)}
+  body.appendChild(g);const c=document.createElement('button');c.textContent='닫기';c.onclick=()=>$('#act').hidden=true;body.appendChild(c);$('#act').hidden=false;
+}
+function syncShelfColorSel(){const s=$('#shelfColorSel');if(!s)return;if(!s.options.length){for(const id in SHELF_THEMES){const o=document.createElement('option');o.value=id;o.textContent=SHELF_THEMES[id].n;s.appendChild(o)}s.onchange=e=>setShelfColor(curShelf,e.target.value)}
+  s.value=shelfColors()[curShelf];const l=$('#shelfColorLbl');if(l)l.textContent='책장 색상 ('+shelfNames()[curShelf]+')'}
