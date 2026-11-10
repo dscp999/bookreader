@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=9;
+const APP_NUM=10;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
@@ -377,10 +377,33 @@ async function pasteCover(silent){
   }catch(e){if(!silent)$('#covMsg').textContent='클립보드를 읽을 수 없어요. 권한을 허용하거나 아래에 이미지 주소를 붙여넣으세요.'}
   return false;
 }
-$('#covG').onclick=()=>{const q=(cleanTitle(covBook.title)||covBook.title)+' 책 표지';gOpened=true;
-  $('#covMsg').textContent='구글 이미지에서 표지를 길게 눌러 "이미지 복사" 후 이 앱으로 돌아오세요.';
+$('#covG').onclick=()=>{const q=(cleanTitle(covBook.title)||covBook.title)+' 책 표지';gOpened=true;localStorage.setItem('pendingCover',JSON.stringify({id:covBook.id,t:Date.now()}));
+  $('#covMsg').textContent='구글 이미지에서 표지를 길게 눌러 "공유" > 북리더를 고르면 바로 표지가 돼요. (복사했다면 이 앱으로 돌아오세요)';
   window.open('https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q),'_blank')};
 $('#covPaste').onclick=()=>pasteCover(false);
 $('#covUrlGo').onclick=()=>{const v=$('#covUrl').value.trim();if(/^https?:\/\//.test(v))applyUrl(v);else $('#covMsg').textContent='http로 시작하는 이미지 주소를 입력하세요.'};
 const backFromGoogle=()=>{if(gOpened&&!document.hidden&&!$('#cov').hidden)setTimeout(()=>pasteCover(true),300)};
 document.addEventListener('visibilitychange',backFromGoogle);window.addEventListener('focus',backFromGoogle);
+
+// ---- receive shared image (Google Images long-press > Share > this app) ----
+async function consumeShared(){
+  try{
+    const c=await caches.open('share');const r=await c.match('shared-image');const u=await c.match('shared-url');
+    if(!r&&!u){if(location.search.includes('shared'))history.replaceState(null,'',location.pathname);return}
+    const blob=r?await r.blob():null;const url=u?await u.text():null;
+    await c.delete('shared-image');await c.delete('shared-url');
+    if(location.search.includes('shared'))history.replaceState(null,'',location.pathname);
+    if(!$('#reader').hidden)$('#back').click();
+    const apply=async id=>{let data=null;
+      try{if(blob&&blob.size>200)data=await blobToCover(blob);else if(url){const m=url.match(/https?:\/\/\S+/);if(m)data=await urlToCover(m[0])}}catch(_){}
+      if(!data){toast('공유된 이미지를 읽지 못했어요');return}
+      setCover(id,data,true);localStorage.removeItem('pendingCover');$('#cov').hidden=true;$('#act').hidden=true;renderLib(true);toast('표지를 적용했어요')};
+    let pend=null;try{pend=JSON.parse(localStorage.getItem('pendingCover')||'null')}catch(_){}
+    if(!libCache.length)libCache=await dbAll();
+    if(pend&&Date.now()-pend.t<30*60000&&libCache.some(b=>b.id===pend.id)){await apply(pend.id);return}
+    $('#actT').textContent='이 이미지를 표지로 쓸 책을 고르세요';const body=$('#actBody');body.innerHTML='';
+    for(const b of libCache){const x=document.createElement('button');x.textContent=b.title;x.onclick=()=>apply(b.id);body.appendChild(x)}
+    const cl=document.createElement('button');cl.textContent='취소';cl.onclick=()=>$('#act').hidden=true;body.appendChild(cl);$('#act').hidden=false;
+  }catch(e){}
+}
+(async()=>{await dbp;await new Promise(r=>setTimeout(r,700));if(!libCache.length)libCache=await dbAll();consumeShared()})();
