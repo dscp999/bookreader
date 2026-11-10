@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=11;
+const APP_NUM=12;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
@@ -377,7 +377,7 @@ async function pasteCover(silent){
   }catch(e){if(!silent)$('#covMsg').textContent='클립보드를 읽을 수 없어요. 권한을 허용하거나 아래에 이미지 주소를 붙여넣으세요.'}
   return false;
 }
-$('#covG').onclick=()=>{const q=(cleanTitle(covBook.title)||covBook.title)+' 책 표지';gOpened=true;localStorage.setItem('pendingCover',JSON.stringify({id:covBook.id,t:Date.now()}));
+$('#covG').onclick=()=>{if(window.Android&&Android.openCoverSearch){Android.openCoverSearch(covBook.id,cleanTitle(covBook.title)||covBook.title);return}const q=(cleanTitle(covBook.title)||covBook.title)+' 책 표지';gOpened=true;localStorage.setItem('pendingCover',JSON.stringify({id:covBook.id,t:Date.now()}));
   $('#covMsg').textContent='구글 이미지에서 표지를 길게 눌러 "공유" > 북리더를 고르면 바로 표지가 돼요. (복사했다면 이 앱으로 돌아오세요)';
   window.open('https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q),'_blank')};
 $('#covPaste').onclick=()=>pasteCover(false);
@@ -417,3 +417,13 @@ $('#pAuto').onclick=()=>{localStorage.setItem('autocover',autoOn()?'0':'1');trie
 $('#pSize').onclick=()=>{S.coverSize=S.coverSize==='M'?'L':S.coverSize==='L'?'S':'M';saveS();syncLibPanel();renderLib(true)};
 $('#pRebuild').onclick=()=>{$('#panel').hidden=true;$('#rebuildBtn').click()};
 $('#updBtn').addEventListener('click',()=>{});
+
+// ---- native app bridge (WebView app): long-press an image in Google Images -> cover ----
+window.onNativeCover=(id,data)=>{if(!data)return;setCover(id,data,true);$('#cov').hidden=true;renderLib(true);toast('표지를 적용했어요')};
+window.__onBack=()=>{
+  for(const s of ['#cov','#act','#panel','#list']){const e=$(s);if(e&&!e.hidden){e.hidden=true;return true}}
+  if(!$('#reader').hidden){$('#back').click();return true}
+  if(editMode){editMode=false;renderLib(true);return true}
+  return false;
+};
+if(window.Android&&Android.openCoverSearch){const m=document.querySelector('#cov .msg');if(m)m.innerHTML='"Google 이미지 열기"를 누르고 마음에 드는 표지를 <b>길게 누르면</b> 바로 적용돼요.'}
