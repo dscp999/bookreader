@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=23;
+const APP_NUM=24;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
@@ -156,14 +156,17 @@ $('#editBtn').onclick=()=>{editMode=!editMode;renderLib(true)};
 let _rz;window.addEventListener('resize',()=>{clearTimeout(_rz);_rz=setTimeout(()=>{if(!$('#lib').hidden)renderLib(true)},200)});
 $('#file').onchange=async e=>{
   const files=[...e.target.files].filter(f=>/\.(epub|txt)$/i.test(f.name));e.target.value='';if(!files.length)return;
-  const total=files.length;let idx=0,done=0;toast('책 등록 중 0/'+total,true);
+  const target=curShelf,tname=shelfNames()[target];const fails=[];
+  const total=files.length;let idx=0,done=0;toast('책 등록 중 0/'+total+' → '+tname,true);
   const worker=async()=>{while(idx<total){const f=files[idx++];
     try{const type=/\.epub$/i.test(f.name)?'epub':'txt';const data=await f.arrayBuffer();
-      await dbAdd({id:Date.now()+Math.random().toString(36).slice(2,7),title:f.name.replace(/\.(epub|txt)$/i,''),type,pos:null,pct:0,bookmarks:[],shelf:curShelf,added:Date.now()+idx},data)}
-    catch(err){console.error(err)}
+      await dbAdd({id:Date.now()+Math.random().toString(36).slice(2,7),title:f.name.replace(/\.(epub|txt)$/i,''),type,pos:null,pct:0,bookmarks:[],shelf:target,added:Date.now()+idx},data)}
+    catch(err){console.error(err);fails.push(f.name+': '+((err&&err.message)||err))}
     done++;toast('책 등록 중 '+done+'/'+total,true);if(done%6===0)await renderLib()}};
   await Promise.all([worker(),worker(),worker()]);
-  toast(done+'권 등록 완료');await renderLib();ensureCovers();
+  await renderLib();ensureCovers();
+  const okN=done-fails.length;toast(okN+'권을 "'+tname+'"에 등록했어요'+(fails.length?' (실패 '+fails.length+'권)':''));
+  if(fails.length)uiAlert('등록하지 못한 책이 있어요.\n'+fails.slice(0,3).join('\n'));
 };
 // ---- reader state ----
 let cur=null,book=null,rend=null,txtW=0,txtPages=1,txtPage=0,locReady=false;
@@ -510,11 +513,12 @@ const uiConfirm=m=>uiDlg(m),uiPrompt=(m,v,s)=>uiDlg(m,{input:v||'',secret:!!s}),
 function shelfNames(){try{const a=JSON.parse(localStorage.getItem('shelfNames')||'null');if(Array.isArray(a)&&a.length===4)return a}catch(_){}return ['책장 1','책장 2','책장 3','책장 4']}
 function renderShelfTabs(counts){
   if(shelfHidden()[curShelf]){curShelf=visibleShelves()[0]||0;localStorage.setItem('curShelf',curShelf)}
-  applyShelfTheme();const box=$('#shelfTabs');if(!box)return;const names=shelfNames();box.innerHTML='';
+  applyShelfTheme();const pl=document.querySelector('label.plus');if(pl&&pl.firstChild&&pl.firstChild.nodeType===3)pl.firstChild.nodeValue='+ 책 추가 · '+shelfNames()[curShelf];
+  const box=$('#shelfTabs');if(!box)return;const names=shelfNames();box.innerHTML='';
   names.forEach((n,i)=>{if(shelfHidden()[i])return;const b=document.createElement('button');b.className='stab'+(i===curShelf?' on':'');b.innerHTML='<span></span><small></small>';
     b.firstChild.textContent=n;b.lastChild.textContent=counts[i]+'권';
     let t=null,lp=false;const stop=()=>{clearTimeout(t);t=null};
-    b.addEventListener('touchstart',()=>{lp=false;stop();t=setTimeout(()=>{lp=true;setTimeout(()=>lp=false,800);openShelfMenu(i)},600)},{passive:true});
+    b.addEventListener('touchstart',()=>{lp=false;stop();t=setTimeout(()=>{lp=true;setTimeout(()=>lp=false,800);openShelfMenu(i)},800)},{passive:true});
     ['touchend','touchmove','touchcancel'].forEach(ev=>b.addEventListener(ev,stop,{passive:true}));
     b.addEventListener('contextmenu',e=>{e.preventDefault();stop();lp=true;setTimeout(()=>lp=false,800);openShelfMenu(i)});
     b.onclick=()=>{if(lp)return;curShelf=i;localStorage.setItem('curShelf',i);editMode=false;renderLib(true)};
