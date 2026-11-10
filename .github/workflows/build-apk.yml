@@ -111,7 +111,6 @@ jobs:
           import android.webkit.ValueCallback;
           import android.webkit.WebChromeClient;
           import android.webkit.WebResourceRequest;
-          import android.webkit.JavascriptInterface;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
@@ -234,6 +233,7 @@ jobs:
           import android.view.Gravity;
           import android.view.View;
           import android.view.ViewGroup;
+          import android.webkit.JavascriptInterface;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
@@ -411,7 +411,7 @@ jobs:
           curl -fsSL -o app/src/main/res/mipmap-xxxhdpi/ic_launcher.png https://dscp999.github.io/bookreader/icon-192.png
       - name: Build debug APK
         working-directory: native
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: gradle assembleDebug --no-daemon --console=plain
       - name: Rename APK
         run: cp native/app/build/outputs/apk/debug/app-debug.apk bookreader-native.apk
       - name: Publish release
