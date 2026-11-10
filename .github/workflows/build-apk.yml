@@ -20,6 +20,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
+      - name: Restore debug signing key (keeps app updates installable)
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: debug-keystore-v1
       - name: Generate Android project
         run: |
           set -e
@@ -121,6 +126,7 @@ jobs:
               static final int REQ_FILE = 1;
               static final int REQ_COVER = 2;
               WebView web;
+              AutoCover auto;
               ValueCallback<Uri[]> fileCb;
 
               @Override
@@ -129,6 +135,7 @@ jobs:
                   getWindow().setStatusBarColor(Color.parseColor("#1c1c1e"));
                   getWindow().setNavigationBarColor(Color.parseColor("#1c1c1e"));
                   web = new WebView(this);
+              auto = new AutoCover(this, web);
                   web.setBackgroundColor(Color.parseColor("#1c1c1e"));
                   setContentView(web);
                   WebSettings s = web.getSettings();
@@ -170,6 +177,15 @@ jobs:
               }
 
               class Bridge {
+                  @JavascriptInterface
+                  public void autoCover(final String id, final String query) {
+                      runOnUiThread(new Runnable() {
+                          public void run() {
+                              auto.enqueue(id, query);
+                          }
+                      });
+                  }
+
                   @JavascriptInterface
                   public void openCoverSearch(final String id, final String query) {
                       runOnUiThread(new Runnable() {
@@ -404,6 +420,209 @@ jobs:
               public void onBackPressed() {
                   if (web.canGoBack()) web.goBack();
                   else finish();
+              }
+          }
+          EOF_FILE
+          mkdir -p app/src/main/java/io/github/dscp999/bookreaderapp
+          cat > app/src/main/java/io/github/dscp999/bookreaderapp/AutoCover.java <<'EOF_FILE'
+          package io.github.dscp999.bookreaderapp;
+
+          import android.app.Activity;
+          import android.graphics.Bitmap;
+          import android.graphics.BitmapFactory;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.util.Base64;
+          import android.view.ViewGroup;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.FrameLayout;
+          import org.json.JSONObject;
+          import org.json.JSONTokener;
+          import java.io.ByteArrayOutputStream;
+          import java.io.InputStream;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.net.URLEncoder;
+          import java.util.ArrayDeque;
+
+          public class AutoCover {
+              static final String EXTRACT_FN = "(function(f){var l=document.querySelectorAll('img');var first=null;var n=0;"
+                  + "for(var i=0;i<l.length&&n<14;i++){var im=l[i];var s=im.currentSrc||im.src;if(!s)continue;"
+                  + "if(s.indexOf('data:image')!==0&&s.indexOf('https://encrypted-tbn')!==0&&s.indexOf('gstatic.com')<0)continue;"
+                  + "if(s.indexOf('data:image/gif')===0||s.indexOf('googlelogo')>=0||s.indexOf('/branding/')>=0)continue;"
+                  + "var w=im.naturalWidth,h=im.naturalHeight;if(w<80||h<80)continue;n++;"
+                  + "var r=h/w;if(r>=1.2&&r<=1.9)return s;if(!first)first=s;}"
+                  + "return (f||n>=6)?first:null;})(";
+
+              final Activity act;
+              final WebView main;
+              WebView wv;
+              final Handler h = new Handler(Looper.getMainLooper());
+              final ArrayDeque<String[]> q = new ArrayDeque<String[]>();
+              boolean busy = false;
+              int token = 0;
+              int polledToken = -1;
+              String curId = "";
+              String ua = "";
+
+              public AutoCover(Activity a, WebView m) {
+                  act = a;
+                  main = m;
+              }
+
+              public void enqueue(String id, String query) {
+                  q.add(new String[]{id, query});
+                  next();
+              }
+
+              void next() {
+                  if (busy || q.isEmpty()) return;
+                  busy = true;
+                  String[] t = q.poll();
+                  begin(t[0], t[1]);
+              }
+
+              void ensureView() {
+                  if (wv != null) return;
+                  wv = new WebView(act);
+                  WebSettings s = wv.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  ua = s.getUserAgentString();
+                  wv.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public void onPageFinished(WebView v, String url) {
+                          if (busy && url != null && url.contains("google.com/search") && polledToken != token) {
+                              polledToken = token;
+                              poll(token, 0);
+                          }
+                      }
+                  });
+                  FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(1080, 1920);
+                  wv.setTranslationX(-6000f);
+                  ((ViewGroup) act.getWindow().getDecorView()).addView(wv, lp);
+              }
+
+              void begin(String id, String query) {
+                  curId = id;
+                  token++;
+                  final int tk = token;
+                  ensureView();
+                  String u;
+                  try {
+                      u = "https://www.google.com/search?tbm=isch&hl=ko&q=" + URLEncoder.encode(query + " 책 표지", "UTF-8");
+                  } catch (Exception e) {
+                      finish(tk, "");
+                      return;
+                  }
+                  wv.loadUrl(u);
+                  h.postDelayed(new Runnable() {
+                      public void run() {
+                          if (busy && token == tk) finish(tk, "");
+                      }
+                  }, 25000);
+              }
+
+              void poll(final int tk, final int n) {
+                  h.postDelayed(new Runnable() {
+                      public void run() {
+                          if (tk != token || !busy) return;
+                          String js = EXTRACT_FN + (n >= 5) + ");";
+                          wv.evaluateJavascript(js, new ValueCallback<String>() {
+                              public void onReceiveValue(String v) {
+                                  if (tk != token || !busy) return;
+                                  String src = unq(v);
+                                  if (src != null && src.length() > 0) convert(tk, src);
+                                  else if (n < 9) poll(tk, n + 1);
+                                  else finish(tk, "");
+                              }
+                          });
+                      }
+                  }, n == 0 ? 1500 : 800);
+              }
+
+              static String unq(String v) {
+                  try {
+                      Object o = new JSONTokener(v).nextValue();
+                      if (o instanceof String) return (String) o;
+                  } catch (Exception e) {
+                  }
+                  return null;
+              }
+
+              void convert(final int tk, final String src) {
+                  new Thread(new Runnable() {
+                      public void run() {
+                          String out = "";
+                          try {
+                              byte[] data;
+                              if (src.startsWith("data:")) {
+                                  int i = src.indexOf(',');
+                                  data = Base64.decode(src.substring(i + 1), Base64.DEFAULT);
+                              } else {
+                                  data = download(src);
+                              }
+                              Bitmap bm = BitmapFactory.decodeByteArray(data, 0, data.length);
+                              if (bm != null) {
+                                  int h2 = Math.max(1, Math.round(bm.getHeight() * 240f / bm.getWidth()));
+                                  Bitmap sc = Bitmap.createScaledBitmap(bm, 240, h2, true);
+                                  ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                                  sc.compress(Bitmap.CompressFormat.JPEG, 85, bo);
+                                  out = "data:image/jpeg;base64," + Base64.encodeToString(bo.toByteArray(), Base64.NO_WRAP);
+                              }
+                          } catch (Exception e) {
+                              out = "";
+                          }
+                          final String res = out;
+                          h.post(new Runnable() {
+                              public void run() {
+                                  finish(tk, res);
+                              }
+                          });
+                      }
+                  }).start();
+              }
+
+              byte[] download(String u) throws Exception {
+                  if (u.startsWith("http:")) u = "https:" + u.substring(5);
+                  if (u.startsWith("//")) u = "https:" + u;
+                  HttpURLConnection c = (HttpURLConnection) new URL(u).openConnection();
+                  c.setConnectTimeout(10000);
+                  c.setReadTimeout(15000);
+                  c.setInstanceFollowRedirects(true);
+                  c.setRequestProperty("User-Agent", ua);
+                  c.setRequestProperty("Referer", "https://www.google.com/");
+                  InputStream in = c.getInputStream();
+                  ByteArrayOutputStream bo = new ByteArrayOutputStream();
+                  byte[] buf = new byte[8192];
+                  int n;
+                  int total = 0;
+                  while ((n = in.read(buf)) > 0) {
+                      bo.write(buf, 0, n);
+                      total += n;
+                      if (total > 12 * 1024 * 1024) throw new Exception("too big");
+                  }
+                  in.close();
+                  return bo.toByteArray();
+              }
+
+              void finish(int tk, String data) {
+                  if (tk != token || !busy) return;
+                  busy = false;
+                  token++;
+                  try {
+                      wv.stopLoading();
+                  } catch (Exception e) {
+                  }
+                  main.evaluateJavascript("window.onNativeAutoCover&&window.onNativeAutoCover(" + JSONObject.quote(curId) + "," + JSONObject.quote(data) + ")", null);
+                  h.postDelayed(new Runnable() {
+                      public void run() {
+                          next();
+                      }
+                  }, 1200);
               }
           }
           EOF_FILE
