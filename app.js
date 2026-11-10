@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=24;
+const APP_NUM=25;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
@@ -155,18 +155,23 @@ $('#viewBtn').onclick=()=>{view=view==='shelf'?'list':'shelf';localStorage.setIt
 $('#editBtn').onclick=()=>{editMode=!editMode;renderLib(true)};
 let _rz;window.addEventListener('resize',()=>{clearTimeout(_rz);_rz=setTimeout(()=>{if(!$('#lib').hidden)renderLib(true)},200)});
 $('#file').onchange=async e=>{
-  const files=[...e.target.files].filter(f=>/\.(epub|txt)$/i.test(f.name));e.target.value='';if(!files.length)return;
+  const all=[...e.target.files];e.target.value='';if(!all.length)return;
+  const kindOf=f=>(/\.epub$/i.test(f.name)||f.type==='application/epub+zip')?'epub':((/\.txt$/i.test(f.name)||f.type==='text/plain')?'txt':null);
+  const files=all.filter(kindOf);const skipped=all.length-files.length;
+  if(!files.length){uiAlert('선택한 파일 '+all.length+'개가 EPUB/TXT 형식이 아니라서 등록하지 않았어요.\n(예: '+all[0].name+')');return}
+  if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
   const target=curShelf,tname=shelfNames()[target];const fails=[];
   const total=files.length;let idx=0,done=0;toast('책 등록 중 0/'+total+' → '+tname,true);
   const worker=async()=>{while(idx<total){const f=files[idx++];
-    try{const type=/\.epub$/i.test(f.name)?'epub':'txt';const data=await f.arrayBuffer();
-      await dbAdd({id:Date.now()+Math.random().toString(36).slice(2,7),title:f.name.replace(/\.(epub|txt)$/i,''),type,pos:null,pct:0,bookmarks:[],shelf:target,added:Date.now()+idx},data)}
+    try{const type=kindOf(f);const data=await f.arrayBuffer();
+      await dbAdd({id:Date.now()+Math.random().toString(36).slice(2,7),title:f.name.replace(/\.(epub|txt)$/i,'')||f.name,type,pos:null,pct:0,bookmarks:[],shelf:target,added:Date.now()+idx},data)}
     catch(err){console.error(err);fails.push(f.name+': '+((err&&err.message)||err))}
     done++;toast('책 등록 중 '+done+'/'+total,true);if(done%6===0)await renderLib()}};
   await Promise.all([worker(),worker(),worker()]);
   await renderLib();ensureCovers();
-  const okN=done-fails.length;toast(okN+'권을 "'+tname+'"에 등록했어요'+(fails.length?' (실패 '+fails.length+'권)':''));
-  if(fails.length)uiAlert('등록하지 못한 책이 있어요.\n'+fails.slice(0,3).join('\n'));
+  const okN=done-fails.length;toast(okN+'권을 "'+tname+'"에 등록했어요'+(fails.length?' (실패 '+fails.length+'권)':'')+(skipped?' (형식 불일치 '+skipped+'개 제외)':''));
+  if(fails.length){let st='';try{const q=await navigator.storage.estimate();st='\n저장공간: 사용 '+Math.round(q.usage/1048576)+'MB / 한도 '+Math.round(q.quota/1048576)+'MB'}catch(_){}
+    uiAlert('등록하지 못한 책이 있어요.\n'+fails.slice(0,3).join('\n')+st)}
 };
 // ---- reader state ----
 let cur=null,book=null,rend=null,txtW=0,txtPages=1,txtPage=0,locReady=false;
