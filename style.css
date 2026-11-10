@@ -17,7 +17,7 @@ h1{margin:0;font-size:22px}
 #stage{position:absolute;inset:0;padding-top:env(safe-area-inset-top)}
 #viewer{position:absolute;inset:0}
 #txt{position:absolute;inset:0;overflow:hidden}#txt.scroll{overflow-y:auto}
-#txtin p{margin:0 0 .6em;text-indent:1em;word-break:keep-all;overflow-wrap:break-word}
+
 .zone{position:absolute;top:0;bottom:0;z-index:5}.zone.l{left:0;width:30%}.zone.r{right:0;width:30%}.zone.c{left:30%;width:40%}
 .bar{position:absolute;left:0;right:0;z-index:10;display:flex;gap:8px;align-items:center;padding:10px 12px;background:var(--ui);transition:transform .2s}
 #top{top:0;padding-top:calc(10px + env(safe-area-inset-top))}#bottom{bottom:0;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
@@ -29,3 +29,5 @@ h1{margin:0;font-size:22px}
 .row input[type=range]{flex:1;max-width:60%}#themes button{margin-left:4px}
 .item{padding:12px 4px;border-bottom:1px solid #8883;cursor:pointer;display:flex;justify-content:space-between}
 [hidden]{display:none!important}
+#txtin p{margin:0 0 .6em;text-indent:1em;word-break:keep-all;overflow-wrap:break-word}
+#txtin.sc p{content-visibility:auto;contain-intrinsic-size:auto 90px}

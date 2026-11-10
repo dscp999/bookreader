@@ -10,9 +10,12 @@ const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginate
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
 applyTheme();
+const getP=id=>{try{return JSON.parse(localStorage.getItem('p_'+id)||'null')}catch(_){return null}};
+const setP=()=>{if(cur)localStorage.setItem('p_'+cur.id,JSON.stringify({pos:cur.pos,pct:cur.pct}))};
+const saveBM=()=>localStorage.setItem('b_'+cur.id,JSON.stringify(cur.bookmarks||[]));
 // ---- library ----
 async function renderLib(){
-  const books=(await dbAll()).sort((a,b)=>(b.opened||0)-(a.opened||0));
+  const books=(await dbAll()).sort((a,b)=>(b.added||0)-(a.added||0));books.forEach(b=>{const p=getP(b.id);if(p)b.pct=p.pct});
   $('#empty').hidden=books.length>0;const g=$('#grid');g.innerHTML='';
   for(const b of books){
     const d=document.createElement('div');d.className='card';
@@ -44,7 +47,8 @@ function decodeText(buf){
   try{return new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch(_){return new TextDecoder('euc-kr').decode(buf)}
 }
 async function openBook(id){
-  cur=await dbGet(id);cur.opened=Date.now();
+  cur=await dbGet(id);const pr=getP(id);if(pr){cur.pos=pr.pos;cur.pct=pr.pct||0}else if(cur.type==='txt'){cur.pos=0;cur.pct=0}
+  try{const bm=JSON.parse(localStorage.getItem('b_'+id)||'null');if(bm)cur.bookmarks=bm}catch(_){}
   $('#lib').hidden=true;$('#reader').hidden=false;$('#reader').classList.remove('hide');
   $('#title').textContent=cur.title;locReady=false;
   if(cur.type==='epub')await openEpub();else openTxt();
@@ -59,7 +63,7 @@ async function openEpub(){
     cur.pos=loc.start.cfi;
     if(locReady){cur.pct=book.locations.percentageFromCfi(loc.start.cfi)}
     else if(loc.start.percentage!=null)cur.pct=loc.start.percentage;
-    showPct();dbPut(cur);
+    showPct();setP();
   });
   rend.on('keyup',keyNav);
   rend.on('click',()=>{});
@@ -73,43 +77,68 @@ function applyEpubStyle(){
   rend.themes.default({body:{background:bg+' !important',color:fg+' !important','font-family':FF[S.ff]+' !important','line-height':S.lh+' !important',padding:'0 '+S.mg+'px !important'},'p,div,span,li':{color:fg+' !important','line-height':S.lh+' !important'},a:{color:'#6aa9ff !important'}});
   rend.themes.fontSize(S.fs+'px');
 }
-// TXT
+// TXT (section-based pagination for large files)
+let paras=[],cum=[],total=1,secs=[0],curSec=0,ps=[],pageOf=[],txtStep=1;
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function secOf(pi){let lo=0,hi=secs.length-1;while(lo<hi){const m=(lo+hi+1)>>1;if(secs[m]<=pi)lo=m;else hi=m-1}return lo}
+function paraOf(f){let lo=0,hi=paras.length-1;const x=f*total;while(lo<hi){const m=(lo+hi+1)>>1;if(cum[m]<=x)lo=m;else hi=m-1}return lo}
 function openTxt(){
   $('#viewer').hidden=true;$('#txt').hidden=false;
   const text=decodeText(cur.data).replace(/\r\n?/g,'\n');
-  cur._html=text.split('\n').filter(l=>l.trim()).map(l=>'<p>'+l.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))+'</p>').join('');
-  $('#txtin').innerHTML=cur._html;layoutTxt(cur.pos||0);
+  paras=text.split('\n').map(l=>l.trim()).filter(Boolean);if(!paras.length)paras=['(빈 파일)'];
+  cum=[];let t=0;for(const p of paras){cum.push(t);t+=p.length}total=Math.max(1,t);
+  secs=[0];let acc=0;for(let i=0;i<paras.length;i++){acc+=paras[i].length;if(acc>6000&&i+1<paras.length){secs.push(i+1);acc=0}}
+  const pi=typeof cur.pos==='number'&&cur.pos>=0?Math.min(cur.pos|0,paras.length-1):0;
+  layoutTxt(pi);
 }
-function layoutTxt(frac){
+function layoutTxt(pi,last){
   const t=$('#txt'),i=$('#txtin'),cs=getComputedStyle(document.body);
-  const top=parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat'))||0;
-  i.style.cssText='font-size:'+S.fs+'px;line-height:'+S.lh+';font-family:'+FF[S.ff]+';color:'+cs.getPropertyValue('--fg')+';';
-  t.style.background=cs.getPropertyValue('--bg');
-  const paged=S.flow==='paginated';t.classList.toggle('scroll',!paged);
-  const padV=24,padH=S.mg+8;
-  t.style.padding=padV+'px '+padH+'px';
+  const paged=S.flow==='paginated';t.classList.toggle('scroll',!paged);i.classList.toggle('sc',!paged);
+  const padH=S.mg+8,padV=24;t.style.padding=padV+'px '+padH+'px';t.style.background=cs.getPropertyValue('--bg');
+  const base='font-size:'+S.fs+'px;line-height:'+S.lh+';font-family:'+FF[S.ff]+';color:'+cs.getPropertyValue('--fg')+';';
+  pi=Math.max(0,Math.min(paras.length-1,pi|0));
   if(paged){
-    txtW=t.clientWidth-2*padH;const h=t.clientHeight-2*padV;
-    i.style.cssText+='height:'+h+'px;column-width:'+txtW+'px;column-gap:'+(2*padH)+'px;column-fill:auto;width:'+txtW+'px;';
-    t.scrollLeft=0;
-    requestAnimationFrame(()=>{txtPages=Math.max(1,Math.round((i.scrollWidth+2*padH)/(txtW+2*padH)));goTxt(Math.min(txtPages-1,Math.round(frac*(txtPages-1))))});
+    curSec=secOf(pi);i.style.cssText=base;renderSec(last?'last':pi,base);
   }else{
-    i.style.cssText+='width:auto;height:auto;';
-    requestAnimationFrame(()=>{t.scrollTop=frac*(t.scrollHeight-t.clientHeight)});
+    i.style.cssText=base+'width:auto;height:auto;';
+    i.innerHTML=paras.map((p,k)=>'<p data-i="'+k+'">'+esc(p)+'</p>').join('');ps=i.children;
+    t.scrollTop=0;requestAnimationFrame(()=>{t.scrollTop=ps[pi]?ps[pi].offsetTop-padV:0});
   }
 }
-function goTxt(p){
-  const t=$('#txt');txtPage=Math.max(0,Math.min(txtPages-1,p));
-  t.scrollLeft=txtPage*(txtW+2*(S.mg+8));
-  cur.pos=txtPages>1?txtPage/(txtPages-1):0;cur.pct=cur.pos;showPct();dbPut(cur);
+function renderSec(target,base){
+  const t=$('#txt'),i=$('#txtin');const padH=S.mg+8,padV=24;
+  const a=secs[curSec],b=secs[curSec+1]??paras.length;
+  let h='';for(let k=a;k<b;k++)h+='<p data-i="'+k+'">'+esc(paras[k])+'</p>';
+  const w=t.clientWidth-2*padH,hh=t.clientHeight-2*padV;
+  i.style.cssText=(base||i.style.cssText)+'height:'+hh+'px;column-width:'+w+'px;column-gap:'+(2*padH)+'px;column-fill:auto;width:'+w+'px;';
+  i.innerHTML=h;t.scrollLeft=0;txtStep=w+2*padH;
+  requestAnimationFrame(()=>{
+    ps=i.children;txtPages=Math.max(1,Math.round((i.scrollWidth+2*padH)/txtStep));
+    pageOf=[];for(const p of ps)pageOf.push(Math.max(0,Math.floor((p.offsetLeft-padH+2)/txtStep)));
+    let pg=0;if(target==='last')pg=txtPages-1;else if(pageOf[target-a]!=null)pg=pageOf[target-a];
+    goTxt(pg);
+  });
 }
-$('#txt').addEventListener('scroll',()=>{if(S.flow!=='scrolled'||!cur||cur.type!=='txt')return;const t=$('#txt');cur.pos=t.scrollTop/Math.max(1,t.scrollHeight-t.clientHeight);cur.pct=cur.pos;showPct();clearTimeout(window._st);window._st=setTimeout(()=>dbPut(cur),400)});
+function goTxt(p){
+  const t=$('#txt');txtPage=Math.max(0,Math.min(txtPages-1,p));t.scrollLeft=txtPage*txtStep;
+  let k=pageOf.findIndex(x=>x>=txtPage);if(k<0)k=pageOf.length-1;else if(pageOf[k]>txtPage&&k>0)k--;
+  const pi=secs[curSec]+Math.max(0,k);cur.pos=pi;cur.pct=cum[pi]/total;showPct();setP();
+}
+$('#txt').addEventListener('scroll',()=>{if(S.flow!=='scrolled'||!cur||cur.type!=='txt'||!ps.length)return;clearTimeout(window._st);window._st=setTimeout(()=>{
+  const t=$('#txt');let lo=0,hi=ps.length-1;const y=t.scrollTop+24;while(lo<hi){const m=(lo+hi+1)>>1;if(ps[m].offsetTop<=y)lo=m;else hi=m-1}
+  cur.pos=lo;cur.pct=cum[lo]/total;showPct();setP()},150)});
+function txtMove(d){
+  if(S.flow==='paginated'){
+    if(d>0){if(txtPage<txtPages-1)goTxt(txtPage+1);else if(curSec<secs.length-1){curSec++;renderSec(secs[curSec])}}
+    else{if(txtPage>0)goTxt(txtPage-1);else if(curSec>0){curSec--;renderSec('last')}}
+  }else{const t=$('#txt');t.scrollBy({top:d*t.clientHeight*0.9,behavior:'smooth'})}
+}
+function txtSeek(f){const pi=paraOf(f);if(S.flow==='paginated'){curSec=secOf(pi);renderSec(pi)}else{$('#txt').scrollTop=ps[pi].offsetTop-24}}
 // navigation
 function move(d){
   if(!cur)return;
   if(cur.type==='epub'){d>0?rend.next():rend.prev()}
-  else if(S.flow==='paginated')goTxt(txtPage+d);
-  else{const t=$('#txt');t.scrollBy({top:d*t.clientHeight*0.9,behavior:'smooth'})}
+  else txtMove(d);
 }
 function keyNav(e){if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' ')move(1);else if(e.key==='ArrowLeft'||e.key==='PageUp')move(-1)}
 document.addEventListener('keyup',keyNav);
@@ -124,10 +153,9 @@ function showPct(){const p=Math.round((cur.pct||0)*1000);$('#seek').value=p;$('#
 $('#seek').onchange=e=>{
   const f=e.target.value/1000;
   if(cur.type==='epub'){if(locReady)rend.display(book.locations.cfiFromPercentage(f))}
-  else if(S.flow==='paginated')goTxt(Math.round(f*(txtPages-1)));
-  else{const t=$('#txt');t.scrollTop=f*(t.scrollHeight-t.clientHeight)}
+  else txtSeek(f);
 };
-$('#back').onclick=async()=>{await dbPut(cur);if(rend){rend.destroy();book.destroy();rend=book=null}cur=null;$('#reader').hidden=true;$('#lib').hidden=false;renderLib()};
+$('#back').onclick=async()=>{setP();if(rend){rend.destroy();book.destroy();rend=book=null}cur=null;$('#reader').hidden=true;$('#lib').hidden=false;renderLib()};
 // panels
 function syncUI(){
   $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;showPct();
@@ -143,7 +171,7 @@ window.addEventListener('resize',()=>{if(cur&&cur.type==='txt')layoutTxt(cur.pos
 // list: toc + bookmarks
 $('#bmBtn').onclick=async()=>{
   cur.bookmarks=cur.bookmarks||[];
-  cur.bookmarks.push({pos:cur.pos,pct:cur.pct||0,t:new Date().toLocaleString('ko-KR')});await dbPut(cur);
+  cur.bookmarks.push({pos:cur.pos,pct:cur.pct||0,t:new Date().toLocaleString('ko-KR')});saveBM();
   $('#bmBtn').textContent='★ 저장됨';setTimeout(()=>$('#bmBtn').textContent='★',1200);
 };
 $('#listBtn').onclick=async()=>{
@@ -154,7 +182,7 @@ $('#listBtn').onclick=async()=>{
     const d=document.createElement('div');d.className='item';d.innerHTML='<span></span><button>삭제</button>';
     d.firstChild.textContent=Math.round(b.pct*1000)/10+'% · '+b.t;
     d.firstChild.onclick=()=>{$('#list').hidden=true;gotoPos(b.pos)};
-    d.lastChild.onclick=async e=>{e.stopPropagation();cur.bookmarks.splice(i,1);await dbPut(cur);$('#listBtn').click()};
+    d.lastChild.onclick=async e=>{e.stopPropagation();cur.bookmarks.splice(i,1);saveBM();$('#listBtn').click()};
     body.appendChild(d);
   });
   if(!(cur.bookmarks||[]).length){const p=document.createElement('p');p.textContent='없음';p.style.opacity=.6;body.appendChild(p)}
@@ -166,5 +194,5 @@ $('#listBtn').onclick=async()=>{
     walk(nav.toc,0);
   }
 };
-function gotoPos(p){if(cur.type==='epub')rend.display(p);else if(S.flow==='paginated')goTxt(Math.round(p*(txtPages-1)));else{const t=$('#txt');t.scrollTop=p*(t.scrollHeight-t.clientHeight)}}
+function gotoPos(p){if(cur.type==='epub')rend.display(p);else{const pi=Math.max(0,Math.min(paras.length-1,p|0));if(S.flow==='paginated'){curSec=secOf(pi);renderSec(pi)}else $('#txt').scrollTop=ps[pi].offsetTop-24}}
 renderLib();
