@@ -58,3 +58,5 @@ h1{margin:0;font-size:22px;text-shadow:0 2px 4px #0008}
 .covres img{width:84px;height:116px;object-fit:cover;border-radius:3px;box-shadow:0 2px 6px #000a;background:#0004}
 .covres figcaption{margin-top:3px;max-height:2.6em;overflow:hidden}
 .msg{font-size:13px;opacity:.8;min-height:1.2em}
+
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#000c;color:#fff;padding:10px 18px;border-radius:20px;font-size:14px;z-index:99;display:none;white-space:nowrap}

@@ -2,11 +2,22 @@
 const $=s=>document.querySelector(s);
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 // ---- IndexedDB ----
-const dbp=new Promise((res,rej)=>{const r=indexedDB.open('reader',1);r.onupgradeneeded=()=>r.result.createObjectStore('books',{keyPath:'id'});r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
-async function tx(mode,fn){const db=await dbp;return new Promise((res,rej)=>{const t=db.transaction('books',mode);const q=fn(t.objectStore('books'));t.oncomplete=()=>res(q&&q.result);t.onerror=()=>rej(t.error)})}
-const dbAll=()=>tx('readonly',s=>s.getAll()),dbGet=id=>tx('readonly',s=>s.get(id)),dbPut=b=>tx('readwrite',s=>s.put(b)),dbDel=id=>tx('readwrite',s=>s.delete(id));
+const dbp=new Promise((res,rej)=>{const r=indexedDB.open('reader',2);
+  r.onupgradeneeded=e=>{const db=r.result;
+    if(!db.objectStoreNames.contains('books'))db.createObjectStore('books',{keyPath:'id'});
+    if(!db.objectStoreNames.contains('files'))db.createObjectStore('files',{keyPath:'id'});
+    if(e.oldVersion===1){const t=r.transaction,bs=t.objectStore('books'),fl=t.objectStore('files');
+      bs.openCursor().onsuccess=ev=>{const c=ev.target.result;if(!c)return;const v=c.value;if(v.data){fl.put({id:v.id,data:v.data});delete v.data;c.update(v)}c.continue()}}};
+  r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+async function tx(stores,mode,fn){const db=await dbp;return new Promise((res,rej)=>{const t=db.transaction(stores,mode);let q;try{q=fn(...[].concat(stores).map(s=>t.objectStore(s)))}catch(e){rej(e);return}t.oncomplete=()=>res(q&&q.result);t.onerror=()=>rej(t.error);t.onabort=()=>rej(t.error)})}
+const dbAll=()=>tx('books','readonly',s=>s.getAll());
+async function dbGet(id){const m=await tx('books','readonly',s=>s.get(id));if(!m)return m;const f=await tx('files','readonly',s=>s.get(id));if(f)m.data=f.data;return m}
+const dbPut=b=>{const m=Object.assign({},b);delete m.data;return tx('books','readwrite',s=>s.put(m))};
+const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,data});return b.put(m)});
+const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
+function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=6;
+const APP_NUM=7;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
@@ -23,10 +34,13 @@ function coverEl(b){
   else{const h=hueOf(b.title);d.style.background='linear-gradient(135deg,hsl('+h+',45%,38%),hsl('+((h+30)%360)+',50%,22%))';const s=document.createElement('span');s.textContent=b.title;d.appendChild(s)}
   return d;
 }
-async function epubCover(data){
-  try{const bk=ePub(data.slice(0));const u=await Promise.race([bk.coverUrl(),new Promise(r=>setTimeout(()=>r(null),6000))]);
-    if(!u){bk.destroy();return null}
-    const bl=await (await fetch(u)).blob();const url=await blobToCover(bl);bk.destroy();return url}catch(_){return null}
+async function epubInfo(data){
+  let url=null,title=null;const T=ms=>new Promise(r=>setTimeout(()=>r(null),ms));
+  try{const bk=ePub(data.slice(0));
+    try{const md=await Promise.race([bk.loaded.metadata,T(6000)]);title=md&&md.title?String(md.title).trim():null}catch(_){}
+    try{const u=await Promise.race([bk.coverUrl(),T(6000)]);if(u){const bl=await (await fetch(u)).blob();url=await blobToCover(bl)}}catch(_){}
+    bk.destroy()}catch(_){}
+  return {url,title};
 }
 async function blobToCover(bl){const im=await createImageBitmap(bl);const w=240,h=Math.round(im.height*w/im.width);
   const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(im,0,0,w,h);return cv.toDataURL('image/jpeg',0.82)}
@@ -58,18 +72,21 @@ async function autoCoverFor(title){
 }
 const autoOn=()=>localStorage.getItem('autocover')!=='0';
 const triedSess=new Set();
+let _rr;const softRender=()=>{clearTimeout(_rr);_rr=setTimeout(()=>{if(!$('#lib').hidden)renderLib(true)},400)};
 async function ensureCovers(books){
-  if(coverBusy||!autoOn())return;coverBusy=true;
-  try{for(const b of books){
-    const cur0=localStorage.getItem('c_'+b.id);if((cur0&&cur0!=='none')||triedSess.has(b.id))continue;
-    let u=null,err=false;
-    if(b.type==='epub'){const full=await dbGet(b.id);u=full&&await epubCover(full.data)}
-    if(!u){const r=await autoCoverFor(b.title);u=r.url;err=r.err&&!u}
-    triedSess.add(b.id);
-    if(u){try{localStorage.setItem('c_'+b.id,u)}catch(_){}; if(!$('#lib').hidden)renderLib(true)}
-    else if(!err)localStorage.setItem('c_'+b.id,'x');
-    await new Promise(r=>setTimeout(r,500));
-  }}finally{coverBusy=false}
+  if(coverBusy||!autoOn())return;
+  const todo=books.filter(b=>{const c=localStorage.getItem('c_'+b.id);return !(c&&c!=='none')&&!triedSess.has(b.id)});
+  if(!todo.length)return;coverBusy=true;let k=0;
+  const w=async()=>{while(k<todo.length){const b=todo[k++];triedSess.add(b.id);
+    try{let u=null,err=false;
+      if(b.type==='epub'){const full=await dbGet(b.id);if(full){const info=await epubInfo(full.data);u=info.url;
+        if(info.title&&info.title!==b.title){const m=libCache.find(x=>x.id===b.id);if(m){m.title=info.title;await dbPut(m)}}}}
+      if(!u){const r=await autoCoverFor(b.title);u=r.url;err=r.err&&!u}
+      if(u){try{localStorage.setItem('c_'+b.id,u)}catch(_){}}else if(!err)localStorage.setItem('c_'+b.id,'x');
+      softRender();
+    }catch(_){}
+    await new Promise(r=>setTimeout(r,120))}};
+  try{await Promise.all([w(),w(),w()])}finally{coverBusy=false}
 }
 // ---- manual cover picker ----
 let covBook=null;
@@ -119,15 +136,15 @@ $('#viewBtn').onclick=()=>{view=view==='shelf'?'list':'shelf';localStorage.setIt
 $('#editBtn').onclick=()=>{editMode=!editMode;renderLib(true)};
 let _rz;window.addEventListener('resize',()=>{clearTimeout(_rz);_rz=setTimeout(()=>{if(!$('#lib').hidden)renderLib(true)},200)});
 $('#file').onchange=async e=>{
-  for(const f of e.target.files){
-    const type=/\.epub$/i.test(f.name)?'epub':'txt';
-    const data=await f.arrayBuffer();
-    let title=f.name.replace(/\.(epub|txt)$/i,'');
-    if(type==='epub'){try{const bk=ePub(data.slice(0));const m=await bk.loaded.metadata;if(m.title)title=m.title;bk.destroy()}catch(_){}}
-    const nid=Date.now()+Math.random().toString(36).slice(2,6);
-    await dbPut({id:nid+'',title,type,data,pos:null,pct:0,bookmarks:[],added:Date.now()});
-  }
-  e.target.value='';renderLib();
+  const files=[...e.target.files].filter(f=>/\.(epub|txt)$/i.test(f.name));e.target.value='';if(!files.length)return;
+  const total=files.length;let idx=0,done=0;toast('책 등록 중 0/'+total,true);
+  const worker=async()=>{while(idx<total){const f=files[idx++];
+    try{const type=/\.epub$/i.test(f.name)?'epub':'txt';const data=await f.arrayBuffer();
+      await dbAdd({id:Date.now()+Math.random().toString(36).slice(2,7),title:f.name.replace(/\.(epub|txt)$/i,''),type,pos:null,pct:0,bookmarks:[],added:Date.now()+idx},data)}
+    catch(err){console.error(err)}
+    done++;toast('책 등록 중 '+done+'/'+total,true);if(done%6===0)await renderLib()}};
+  await Promise.all([worker(),worker(),worker()]);
+  toast(done+'권 등록 완료');await renderLib();
 };
 // ---- reader state ----
 let cur=null,book=null,rend=null,txtW=0,txtPages=1,txtPage=0,locReady=false;
