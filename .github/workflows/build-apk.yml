@@ -111,6 +111,7 @@ jobs:
           import android.webkit.ValueCallback;
           import android.webkit.WebChromeClient;
           import android.webkit.WebResourceRequest;
+          import android.webkit.JavascriptInterface;
           import android.webkit.WebSettings;
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
@@ -272,7 +273,7 @@ jobs:
                   bar.setGravity(Gravity.CENTER_VERTICAL);
                   bar.setPadding(dp(14), dp(6), dp(8), dp(6));
                   TextView tv = new TextView(this);
-                  tv.setText("표지로 쓸 이미지를 길게 누르세요");
+                  tv.setText("표지로 쓸 이미지를 탭하세요 (길게 눌러도 돼요)");
                   tv.setTextColor(Color.WHITE);
                   tv.setTextSize(15);
                   bar.addView(tv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -290,7 +291,13 @@ jobs:
                   s.setJavaScriptEnabled(true);
                   s.setDomStorageEnabled(true);
                   ua = s.getUserAgentString();
-                  web.setWebViewClient(new WebViewClient());
+                  web.addJavascriptInterface(new CoverBridge(), "CoverBridge");
+                  web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public void onPageFinished(WebView v, String url) {
+                          v.evaluateJavascript(TAP_JS, null);
+                      }
+                  });
                   web.setOnLongClickListener(new View.OnLongClickListener() {
                       public boolean onLongClick(View v) {
                           WebView.HitTestResult r = web.getHitTestResult();
@@ -310,7 +317,29 @@ jobs:
                   }
               }
 
+              boolean busy = false;
+
+              static final String TAP_JS = "(function(){if(window.__cbInit)return;window.__cbInit=true;"
+                  + "function inR(im,x,y){var r=im.getBoundingClientRect();return x>=r.left-6&&x<=r.right+6&&y>=r.top-6&&y<=r.bottom+6&&r.width>=70&&r.height>=70;}"
+                  + "function find(t,x,y){var el=t;for(var i=0;i<4&&el;i++){if(el.tagName==='IMG'&&inR(el,x,y))return el;if(el.querySelectorAll){var l=el.querySelectorAll('img');for(var k=0;k<l.length;k++){if(inR(l[k],x,y))return l[k];}}el=el.parentElement;}return null;}"
+                  + "document.addEventListener('click',function(e){var im=find(e.target,e.clientX,e.clientY);if(!im)return;"
+                  + "var s=im.getAttribute('data-src')||im.currentSrc||im.src;if(!s||s.indexOf('data:image/gif')===0)s=im.src;if(!s)return;"
+                  + "e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();CoverBridge.pick(s);},true);})();";
+
+              class CoverBridge {
+                  @JavascriptInterface
+                  public void pick(final String src) {
+                      runOnUiThread(new Runnable() {
+                          public void run() {
+                              CoverSearchActivity.this.pick(src);
+                          }
+                      });
+                  }
+              }
+
               void pick(final String u) {
+                  if (busy) return;
+                  busy = true;
                   Toast.makeText(this, "표지 적용 중...", Toast.LENGTH_SHORT).show();
                   new Thread(new Runnable() {
                       public void run() {
@@ -339,7 +368,8 @@ jobs:
                           } catch (Exception e) {
                               runOnUiThread(new Runnable() {
                                   public void run() {
-                                      Toast.makeText(CoverSearchActivity.this, "이미지를 가져오지 못했어요. 다른 이미지를 눌러 보세요", Toast.LENGTH_SHORT).show();
+                                      busy = false;
+                            Toast.makeText(CoverSearchActivity.this, "이미지를 가져오지 못했어요. 다른 이미지를 눌러 보세요", Toast.LENGTH_SHORT).show();
                                   }
                               });
                           }
