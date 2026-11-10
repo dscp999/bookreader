@@ -455,6 +455,7 @@ jobs:
                   + "if(s.indexOf('data:image/gif')===0||s.indexOf('googlelogo')>=0||s.indexOf('/branding/')>=0)continue;"
                   + "var w=im.naturalWidth,h=im.naturalHeight;if(w<80||h<80)continue;n++;"
                   + "var r=h/w;if(r>=1.2&&r<=1.9)return s;if(!first)first=s;}"
+                  + "if(!first&&f){var H=document.documentElement.innerHTML;var p=H.indexOf('https://encrypted-tbn');if(p>=0){var e=p;while(e<H.length){var c=H.charCodeAt(e);if(c===34||c===39||c===32||c===60||c===62||c===92||c===38)break;e++;}first=H.substring(p,e);}}"
                   + "return (f||n>=6)?first:null;})(";
 
               final Activity act;
@@ -467,6 +468,7 @@ jobs:
               int polledToken = -1;
               String curId = "";
               String ua = "";
+              String reason = "";
 
               public AutoCover(Activity a, WebView m) {
                   act = a;
@@ -521,7 +523,10 @@ jobs:
                   wv.loadUrl(u);
                   h.postDelayed(new Runnable() {
                       public void run() {
-                          if (busy && token == tk) finish(tk, "");
+                          if (busy && token == tk) {
+                    reason = "timeout:" + String.valueOf(wv.getUrl());
+                    finish(tk, "");
+                }
                       }
                   }, 25000);
               }
@@ -530,14 +535,14 @@ jobs:
                   h.postDelayed(new Runnable() {
                       public void run() {
                           if (tk != token || !busy) return;
-                          String js = EXTRACT_FN + (n >= 5) + ");";
+                          String js = "window.scrollBy(0,150);" + EXTRACT_FN + (n >= 5) + ");";
                           wv.evaluateJavascript(js, new ValueCallback<String>() {
                               public void onReceiveValue(String v) {
                                   if (tk != token || !busy) return;
                                   String src = unq(v);
                                   if (src != null && src.length() > 0) convert(tk, src);
                                   else if (n < 9) poll(tk, n + 1);
-                                  else finish(tk, "");
+                                  else finishDiag(tk);
                               }
                           });
                       }
@@ -575,6 +580,7 @@ jobs:
                               }
                           } catch (Exception e) {
                               out = "";
+                              reason = "convert:" + e.getMessage();
                           }
                           final String res = out;
                           h.post(new Runnable() {
@@ -609,6 +615,15 @@ jobs:
                   return bo.toByteArray();
               }
 
+              void finishDiag(final int tk) {
+                  wv.evaluateJavascript("(function(){return document.title+'|'+location.href.substring(0,70)+'|imgs='+document.images.length})()", new ValueCallback<String>() {
+                      public void onReceiveValue(String v) {
+                          reason = "noimg:" + (v == null ? "" : v);
+                          finish(tk, "");
+                      }
+                  });
+              }
+
               void finish(int tk, String data) {
                   if (tk != token || !busy) return;
                   busy = false;
@@ -617,7 +632,8 @@ jobs:
                       wv.stopLoading();
                   } catch (Exception e) {
                   }
-                  main.evaluateJavascript("window.onNativeAutoCover&&window.onNativeAutoCover(" + JSONObject.quote(curId) + "," + JSONObject.quote(data) + ")", null);
+                  main.evaluateJavascript("window.onNativeAutoCover&&window.onNativeAutoCover(" + JSONObject.quote(curId) + "," + JSONObject.quote(data) + "," + JSONObject.quote(reason) + ")", null);
+                  reason = "";
                   h.postDelayed(new Runnable() {
                       public void run() {
                           next();
