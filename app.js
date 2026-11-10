@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=22;
+const APP_NUM=23;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
@@ -458,7 +458,7 @@ async function consumeShared(){
     if(!libCache.length)libCache=await dbAll();
     if(pend&&Date.now()-pend.t<30*60000&&libCache.some(b=>b.id===pend.id)){await apply(pend.id);return}
     $('#actT').textContent='이 이미지를 표지로 쓸 책을 고르세요';const body=$('#actBody');body.innerHTML='';
-    for(const b of libCache){const x=document.createElement('button');x.textContent=b.title;x.onclick=()=>apply(b.id);body.appendChild(x)}
+    for(const b of libCache.filter(b=>!shelfHidden()[(b.shelf||0)%4])){const x=document.createElement('button');x.textContent=b.title;x.onclick=()=>apply(b.id);body.appendChild(x)}
     const cl=document.createElement('button');cl.textContent='취소';cl.onclick=()=>$('#act').hidden=true;body.appendChild(cl);$('#act').hidden=false;
   }catch(e){}
 }
@@ -466,7 +466,7 @@ async function consumeShared(){
 
 // ---- settings button on library screen ----
 const SZ={S:'작게',M:'보통',L:'크게'};
-function syncLibPanel(){updateStat();syncShelfColorSel();$('#pAuto').textContent=autoOn()?'켬':'끔';$('#pSize').textContent=SZ[S.coverSize]||'보통'}
+function syncLibPanel(){updateStat();syncHiddenRow();syncShelfColorSel();$('#pAuto').textContent=autoOn()?'켬':'끔';$('#pSize').textContent=SZ[S.coverSize]||'보통'}
 $('#setLibBtn').onclick=()=>{syncUI();syncLibPanel();$('#list').hidden=true;$('#panel').hidden=false};
 $('#setBtn').addEventListener('click',syncLibPanel);
 $('#pAuto').onclick=()=>{localStorage.setItem('autocover',autoOn()?'0':'1');triedSess.clear();syncLibPanel();renderLib(true)};
@@ -502,15 +502,16 @@ function updateStat(){const ra=$('#rowGetApp');if(ra)ra.hidden=nativeOK();const 
 function uiDlg(msg,o){o=o||{};const input=o.input===undefined?null:o.input;
   return new Promise(res=>{const d=$('#dlg'),bg=$('#dlgBg'),inp=$('#dlgIn');
     $('#dlgMsg').textContent=msg;inp.hidden=input===null;if(input!==null)inp.value=input;
-    $('#dlgNo').hidden=!!o.single;d.hidden=false;bg.hidden=false;if(input!==null)setTimeout(()=>inp.focus(),60);
+    inp.type=o.secret?'password':'text';inp.inputMode=o.secret?'numeric':'text';$('#dlgNo').hidden=!!o.single;d.hidden=false;bg.hidden=false;if(input!==null)setTimeout(()=>inp.focus(),60);
     const done=v=>{d.hidden=true;bg.hidden=true;$('#dlgOk').onclick=null;$('#dlgNo').onclick=null;res(v)};
     $('#dlgOk').onclick=()=>done(input!==null?inp.value:true);$('#dlgNo').onclick=()=>done(input!==null?null:false)})}
-const uiConfirm=m=>uiDlg(m),uiPrompt=(m,v)=>uiDlg(m,{input:v||''}),uiAlert=m=>uiDlg(m,{single:true});
+const uiConfirm=m=>uiDlg(m),uiPrompt=(m,v,s)=>uiDlg(m,{input:v||'',secret:!!s}),uiAlert=m=>uiDlg(m,{single:true});
 // ---- 4 separate bookshelves ----
 function shelfNames(){try{const a=JSON.parse(localStorage.getItem('shelfNames')||'null');if(Array.isArray(a)&&a.length===4)return a}catch(_){}return ['책장 1','책장 2','책장 3','책장 4']}
 function renderShelfTabs(counts){
+  if(shelfHidden()[curShelf]){curShelf=visibleShelves()[0]||0;localStorage.setItem('curShelf',curShelf)}
   applyShelfTheme();const box=$('#shelfTabs');if(!box)return;const names=shelfNames();box.innerHTML='';
-  names.forEach((n,i)=>{const b=document.createElement('button');b.className='stab'+(i===curShelf?' on':'');b.innerHTML='<span></span><small></small>';
+  names.forEach((n,i)=>{if(shelfHidden()[i])return;const b=document.createElement('button');b.className='stab'+(i===curShelf?' on':'');b.innerHTML='<span></span><small></small>';
     b.firstChild.textContent=n;b.lastChild.textContent=counts[i]+'권';
     let t=null,lp=false;const stop=()=>{clearTimeout(t);t=null};
     b.addEventListener('touchstart',()=>{lp=false;stop();t=setTimeout(()=>{lp=true;setTimeout(()=>lp=false,800);openShelfMenu(i)},600)},{passive:true});
@@ -548,6 +549,7 @@ function openShelfMenu(i){
   const add=(l,fn)=>{const x=document.createElement('button');x.textContent=l;x.onclick=fn;body.appendChild(x)};
   add('이름 바꾸기',()=>{$('#act').hidden=true;renameShelf(i)});
   add('색 바꾸기...',()=>pickShelfColor(i));
+  add('이 책장 숨기기',()=>{$('#act').hidden=true;hideShelf(i)});
   add('닫기',()=>$('#act').hidden=true);$('#act').hidden=false;
 }
 function pickShelfColor(i){
@@ -572,3 +574,35 @@ async function diagCover(){
   L.push('앱 버전: v'+APP_NUM);toast('진단 완료');await uiAlert(L.join('\n'));
 }
 $('#pDiag').onclick=diagCover;
+
+// ---- hide / unhide shelves (optional PIN) ----
+function shelfHidden(){try{const a=JSON.parse(localStorage.getItem('shelfHidden')||'null');if(Array.isArray(a)&&a.length===4)return a}catch(_){}return [false,false,false,false]}
+function visibleShelves(){return shelfHidden().map((h,i)=>h?-1:i).filter(i=>i>=0)}
+async function pinHash(p){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('bookreader|'+p));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+async function askPin(msg){const h=localStorage.getItem('shelfPin');if(!h)return true;const p=await uiPrompt(msg||'숨김 비밀번호를 입력하세요','',true);if(p===null)return false;if((await pinHash(p.trim()))===h)return true;await uiAlert('비밀번호가 맞지 않아요.');return false}
+async function hideShelf(i){
+  if(visibleShelves().length<=1){await uiAlert('책장은 최소 1개는 보여야 해요.');return}
+  const nm=shelfNames()[i];
+  if(!(await uiConfirm('"'+nm+'" 책장을 숨길까요?\n\n탭과 책이 모두 안 보이게 돼요. 설정의 "숨긴 책장 > 관리"에서 다시 보이게 할 수 있어요.'+(localStorage.getItem('shelfPin')?'':'\n(비밀번호는 설정에서 따로 걸 수 있어요)'))))return;
+  const a=shelfHidden();a[i]=true;localStorage.setItem('shelfHidden',JSON.stringify(a));
+  if(curShelf===i){curShelf=visibleShelves()[0];localStorage.setItem('curShelf',curShelf)}
+  editMode=false;renderLib(true);toast('"'+nm+'" 책장을 숨겼어요');
+}
+async function manageHidden(){
+  if(!(await askPin()))return;
+  const names=shelfNames(),hid=shelfHidden();const body=$('#actBody');body.innerHTML='';$('#actT').textContent='숨긴 책장';$('#panel').hidden=true;
+  const cnt=[0,0,0,0];libCache.forEach(b=>cnt[(b.shelf||0)%4]++);
+  let any=false;hid.forEach((h,i)=>{if(!h)return;any=true;const x=document.createElement('button');x.textContent=names[i]+' ('+cnt[i]+'권) 다시 보이기';
+    x.onclick=()=>{const a=shelfHidden();a[i]=false;localStorage.setItem('shelfHidden',JSON.stringify(a));$('#act').hidden=true;curShelf=i;localStorage.setItem('curShelf',i);renderLib(true);toast('"'+names[i]+'" 책장을 다시 보여요')};body.appendChild(x)});
+  if(!any){const p=document.createElement('p');p.textContent='숨긴 책장이 없어요.';p.style.opacity=.7;body.appendChild(p)}
+  const c=document.createElement('button');c.textContent='닫기';c.onclick=()=>$('#act').hidden=true;body.appendChild(c);$('#act').hidden=false;
+}
+async function setPin(){
+  const has=!!localStorage.getItem('shelfPin');if(has&&!(await askPin('현재 비밀번호를 입력하세요')))return;
+  const n=await uiPrompt('새 비밀번호 (숫자 4자리 이상)'+(has?'\n비워 두면 비밀번호를 해제해요':''),'',true);if(n===null)return;
+  const t=n.trim();if(t===''){if(has){localStorage.removeItem('shelfPin');toast('비밀번호를 해제했어요');syncHiddenRow()}return}
+  if(!/^\d{4,}$/.test(t)){await uiAlert('숫자 4자리 이상으로 입력하세요.');return}
+  localStorage.setItem('shelfPin',await pinHash(t));toast('비밀번호를 설정했어요');syncHiddenRow();
+}
+function syncHiddenRow(){const n=shelfHidden().filter(Boolean).length;const e=$('#pHiddenN');if(e)e.textContent=n;const b=$('#pPin');if(b)b.textContent=localStorage.getItem('shelfPin')?'변경 / 해제':'설정'}
+$('#pHidden').onclick=manageHidden;$('#pPin').onclick=setPin;
