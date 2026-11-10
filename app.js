@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=25;
+const APP_NUM=26;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
@@ -154,25 +154,46 @@ $('#sort').onchange=e=>{sortBy=e.target.value;localStorage.setItem('sort',sortBy
 $('#viewBtn').onclick=()=>{view=view==='shelf'?'list':'shelf';localStorage.setItem('view',view);renderLib(true)};
 $('#editBtn').onclick=()=>{editMode=!editMode;renderLib(true)};
 let _rz;window.addEventListener('resize',()=>{clearTimeout(_rz);_rz=setTimeout(()=>{if(!$('#lib').hidden)renderLib(true)},200)});
+const zipName=b=>{try{return new TextDecoder('utf-8',{fatal:true}).decode(b)}catch(_){return new TextDecoder('euc-kr').decode(b)}};
+async function expandZip(f,notes){
+  const z=await JSZip.loadAsync(await f.arrayBuffer(),{decodeFileName:zipName});
+  const ents=Object.values(z.files).filter(x=>!x.dir&&!/(^|\/)(__MACOSX|\.)/.test(x.name)&&/\.(epub|txt)$/i.test(x.name));
+  ents.sort((p,q)=>p.name.localeCompare(q.name,'ko',{numeric:true}));
+  const base=n=>n.split('/').pop();const out=[];
+  const epubs=ents.filter(x=>/\.epub$/i.test(x.name)),txts=ents.filter(x=>/\.txt$/i.test(x.name));
+  for(const x of epubs)out.push({name:base(x.name),kind:'epub',get:()=>x.async('arraybuffer')});
+  if(txts.length>1){
+    const merge=await uiDlg('"'+f.name+'" 안에 TXT가 '+txts.length+'개 있어요.\n한 권으로 합칠까요? (이름순으로 이어 붙여요)',{ok:'한 권으로 합치기',no:'각각 따로'});
+    if(merge){out.push({name:f.name.replace(/\.zip$/i,'')+'.txt',kind:'txt',get:async()=>{let s='';for(let i=0;i<txts.length;i++){const t=decodeText(await txts[i].async('arraybuffer')).replace(/\r\n?/g,'\n').trim();s+=(i?'\n\n':'')+'■ '+base(txts[i].name).replace(/\.txt$/i,'')+'\n\n'+t}return new TextEncoder().encode(s).buffer}});return out}
+  }
+  for(const x of txts)out.push({name:base(x.name),kind:'txt',get:()=>x.async('arraybuffer')});
+  if(!out.length)notes.push(f.name+': 안에 EPUB/TXT가 없어요 (이미지 ZIP 등은 지원하지 않아요)');
+  return out;
+}
 $('#file').onchange=async e=>{
   const all=[...e.target.files];e.target.value='';if(!all.length)return;
-  const kindOf=f=>(/\.epub$/i.test(f.name)||f.type==='application/epub+zip')?'epub':((/\.txt$/i.test(f.name)||f.type==='text/plain')?'txt':null);
-  const files=all.filter(kindOf);const skipped=all.length-files.length;
-  if(!files.length){uiAlert('선택한 파일 '+all.length+'개가 EPUB/TXT 형식이 아니라서 등록하지 않았어요.\n(예: '+all[0].name+')');return}
+  const kindOf=f=>(/\.epub$/i.test(f.name)||f.type==='application/epub+zip')?'epub':((/\.txt$/i.test(f.name)||f.type==='text/plain')?'txt':((/\.zip$/i.test(f.name)||/zip/i.test(f.type))?'zip':null));
+  const notes=[],items=[];let skipped=0;
+  for(const f of all){const k=kindOf(f);
+    if(!k){skipped++;continue}
+    if(k==='zip'){toast('ZIP 여는 중: '+f.name,true);try{items.push(...await expandZip(f,notes))}catch(err){notes.push(f.name+': ZIP을 열 수 없어요 ('+((err&&err.message)||err)+')')}}
+    else items.push({name:f.name,kind:k,get:()=>f.arrayBuffer()})}
+  if(!items.length){const tt=document.getElementById('toast');if(tt)tt.style.display='none';uiAlert(notes.length?notes.slice(0,3).join('\n'):'선택한 파일 '+all.length+'개가 EPUB/TXT/ZIP 형식이 아니라서 등록하지 않았어요.\n(예: '+all[0].name+')');return}
   if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
   const target=curShelf,tname=shelfNames()[target];const fails=[];
-  const total=files.length;let idx=0,done=0;toast('책 등록 중 0/'+total+' → '+tname,true);
-  const worker=async()=>{while(idx<total){const f=files[idx++];
-    try{const type=kindOf(f);const data=await f.arrayBuffer();
-      await dbAdd({id:Date.now()+Math.random().toString(36).slice(2,7),title:f.name.replace(/\.(epub|txt)$/i,'')||f.name,type,pos:null,pct:0,bookmarks:[],shelf:target,added:Date.now()+idx},data)}
-    catch(err){console.error(err);fails.push(f.name+': '+((err&&err.message)||err))}
+  const total=items.length;let idx=0,done=0;toast('책 등록 중 0/'+total+' → '+tname,true);
+  const worker=async()=>{while(idx<total){const it=items[idx++];
+    try{const data=await it.get();
+      await dbAdd({id:Date.now()+Math.random().toString(36).slice(2,7),title:it.name.replace(/\.(epub|txt)$/i,'')||it.name,type:it.kind,pos:null,pct:0,bookmarks:[],shelf:target,added:Date.now()+idx},data)}
+    catch(err){console.error(err);fails.push(it.name+': '+((err&&err.message)||err))}
     done++;toast('책 등록 중 '+done+'/'+total,true);if(done%6===0)await renderLib()}};
   await Promise.all([worker(),worker(),worker()]);
   await renderLib();ensureCovers();
   const okN=done-fails.length;toast(okN+'권을 "'+tname+'"에 등록했어요'+(fails.length?' (실패 '+fails.length+'권)':'')+(skipped?' (형식 불일치 '+skipped+'개 제외)':''));
-  if(fails.length){let st='';try{const q=await navigator.storage.estimate();st='\n저장공간: 사용 '+Math.round(q.usage/1048576)+'MB / 한도 '+Math.round(q.quota/1048576)+'MB'}catch(_){}
-    uiAlert('등록하지 못한 책이 있어요.\n'+fails.slice(0,3).join('\n')+st)}
+  if(fails.length||notes.length){let st='';if(fails.length){try{const q=await navigator.storage.estimate();st='\n저장공간: 사용 '+Math.round(q.usage/1048576)+'MB / 한도 '+Math.round(q.quota/1048576)+'MB'}catch(_){}}
+    uiAlert('확인이 필요한 항목이 있어요.\n'+fails.concat(notes).slice(0,4).join('\n')+st)}
 };
+
 // ---- reader state ----
 let cur=null,book=null,rend=null,txtW=0,txtPages=1,txtPage=0,locReady=false;
 const FF={serif:'"Noto Serif KR","Nanum Myeongjo",serif','sans-serif':'"Noto Sans KR","Nanum Gothic",sans-serif',monospace:'monospace',book:'serif'};
@@ -509,7 +530,7 @@ function updateStat(){const ra=$('#rowGetApp');if(ra)ra.hidden=nativeOK();const 
 // ---- in-app dialogs (WebView-safe replacements for confirm/prompt/alert) ----
 function uiDlg(msg,o){o=o||{};const input=o.input===undefined?null:o.input;
   return new Promise(res=>{const d=$('#dlg'),bg=$('#dlgBg'),inp=$('#dlgIn');
-    $('#dlgMsg').textContent=msg;inp.hidden=input===null;if(input!==null)inp.value=input;
+    $('#dlgMsg').textContent=msg;$('#dlgOk').textContent=o.ok||'확인';$('#dlgNo').textContent=o.no||'취소';inp.hidden=input===null;if(input!==null)inp.value=input;
     inp.type=o.secret?'password':'text';inp.inputMode=o.secret?'numeric':'text';$('#dlgNo').hidden=!!o.single;d.hidden=false;bg.hidden=false;if(input!==null)setTimeout(()=>inp.focus(),60);
     const done=v=>{d.hidden=true;bg.hidden=true;$('#dlgOk').onclick=null;$('#dlgNo').onclick=null;res(v)};
     $('#dlgOk').onclick=()=>done(input!==null?inp.value:true);$('#dlgNo').onclick=()=>done(input!==null?null:false)})}
