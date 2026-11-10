@@ -6,7 +6,8 @@ const dbp=new Promise((res,rej)=>{const r=indexedDB.open('reader',1);r.onupgrade
 async function tx(mode,fn){const db=await dbp;return new Promise((res,rej)=>{const t=db.transaction('books',mode);const q=fn(t.objectStore('books'));t.oncomplete=()=>res(q&&q.result);t.onerror=()=>rej(t.error)})}
 const dbAll=()=>tx('readonly',s=>s.getAll()),dbGet=id=>tx('readonly',s=>s.get(id)),dbPut=b=>tx('readwrite',s=>s.put(b)),dbDel=id=>tx('readwrite',s=>s.delete(id));
 // ---- settings ----
-const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated'},JSON.parse(localStorage.getItem('rs')||'{}'));
+const APP_NUM=6;
+const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto'},JSON.parse(localStorage.getItem('rs')||'{}'));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
 applyTheme();
@@ -90,7 +91,7 @@ async function renderLib(useCache){
   if(!useCache)libCache=await dbAll();
   const books=libCache.map(b=>{const p=getP(b.id);return Object.assign({},b,{pct:p?p.pct||0:0,opened:+localStorage.getItem('o_'+b.id)||0})});
   books.sort((a,b)=>sortBy==='title'?a.title.localeCompare(b.title,'ko'):sortBy==='pct'?b.pct-a.pct:sortBy==='added'?b.added-a.added:(b.opened-a.opened)||(b.added-a.added));
-  $('#sort').value=sortBy;$('#viewBtn').textContent=view==='shelf'?'목록':'책꽂이';$('#editBtn').textContent=editMode?'완료':'편집';$('#autoBtn').hidden=!editMode;$('#autoBtn').textContent='자동표지: '+(autoOn()?'켬':'끔');
+  $('#sort').value=sortBy;$('#viewBtn').textContent=view==='shelf'?'목록':'책꽂이';$('#editBtn').textContent=editMode?'완료':'편집';$('#autoBtn').hidden=!editMode;$('#updBtn2').hidden=!editMode;$('#autoBtn').textContent='자동표지: '+(autoOn()?'켬':'끔');
   $('#empty').hidden=books.length>0;const g=$('#grid');g.innerHTML='';g.className=view;
   const tagOf=b=>{const t=document.createElement('div');t.className='tag'+(b.pct<=0&&!b.opened?' new':'');t.textContent=b.pct<=0&&!b.opened?'NEW':Math.round(b.pct*100)+'%';return t};
   const covBtn=b=>{const x=document.createElement('button');x.className='cb';x.textContent=view==='shelf'?'표':'표지';x.onclick=e=>{e.stopPropagation();openCov(b)};return x};
@@ -152,7 +153,7 @@ async function openBook(id){
 async function openEpub(){
   $('#txt').hidden=true;$('#viewer').hidden=false;$('#viewer').innerHTML='';
   book=ePub(cur.data.slice(0));
-  rend=book.renderTo('viewer',{width:'100%',height:'100%',flow:S.flow,spread:'none',allowScriptedContent:false});
+  rend=book.renderTo('viewer',{width:'100%',height:'100%',flow:S.flow,spread:S.spread==='2'?'both':S.spread==='1'?'none':'auto',minSpreadWidth:800,allowScriptedContent:false});
   applyEpubStyle();
   rend.on('relocated',loc=>{
     cur.pos=loc.start.cfi;
@@ -167,7 +168,7 @@ async function openEpub(){
 }
 function applyEpubStyle(){
   if(!rend)return;const cs=getComputedStyle(document.body);
-  rend.flow(S.flow);
+  rend.flow(S.flow);rend.spread(S.spread==='2'?'both':S.spread==='1'?'none':'auto',800);
   const bg=cs.getPropertyValue('--bg'),fg=cs.getPropertyValue('--fg');
   rend.themes.default({body:{background:bg+' !important',color:fg+' !important','font-family':FF[S.ff]+' !important','line-height':S.lh+' !important',padding:'0 '+S.mg+'px !important'},'p,div,span,li':{color:fg+' !important','line-height':S.lh+' !important'},a:{color:'#6aa9ff !important'}});
   rend.themes.fontSize(S.fs+'px');
@@ -205,10 +206,11 @@ function renderSec(target,base){
   const a=secs[curSec],b=secs[curSec+1]??paras.length;
   let h='';for(let k=a;k<b;k++)h+='<p data-i="'+k+'">'+esc(paras[k])+'</p>';
   const w=t.clientWidth-2*padH,hh=t.clientHeight-2*padV;
-  i.style.cssText=(base||i.style.cssText)+'height:'+hh+'px;column-width:'+w+'px;column-gap:'+(2*padH)+'px;column-fill:auto;width:'+w+'px;';
-  i.innerHTML=h;t.scrollLeft=0;txtStep=w+2*padH;
+  const two=S.spread==='2'||(S.spread==='auto'&&t.clientWidth>=800&&t.clientWidth>t.clientHeight);const gp=two?Math.max(2*padH,32):2*padH;
+  i.style.cssText=(base||i.style.cssText)+'height:'+hh+'px;column-count:'+(two?2:1)+';column-gap:'+gp+'px;column-fill:auto;width:'+w+'px;';
+  i.innerHTML=h;t.scrollLeft=0;txtStep=w+gp;window._gp=gp;
   requestAnimationFrame(()=>{
-    ps=i.children;txtPages=Math.max(1,Math.round((i.scrollWidth+2*padH)/txtStep));
+    ps=i.children;txtPages=Math.max(1,Math.round((i.scrollWidth+window._gp)/txtStep));
     pageOf=[];for(const p of ps)pageOf.push(Math.max(0,Math.floor((p.offsetLeft-padH+2)/txtStep)));
     let pg=0;if(target==='last')pg=txtPages-1;else if(pageOf[target-a]!=null)pg=pageOf[target-a];
     goTxt(pg);
@@ -253,7 +255,7 @@ $('#seek').onchange=e=>{
 $('#back').onclick=async()=>{setP();if(rend){rend.destroy();book.destroy();rend=book=null}cur=null;$('#reader').hidden=true;$('#lib').hidden=false;renderLib()};
 // panels
 function syncUI(){
-  $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;showPct();
+  $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;$('#ver').textContent='v'+APP_NUM;showPct();
 }
 function relayout(){applyTheme();if(!cur)return;if(cur.type==='epub')applyEpubStyle();else layoutTxt(cur.pos||0)}
 $('#setBtn').onclick=()=>{$('#panel').hidden=false;$('#list').hidden=true};
@@ -261,6 +263,7 @@ $('#closeP').onclick=()=>$('#panel').hidden=true;$('#closeL').onclick=()=>$('#li
 document.querySelectorAll('#themes button').forEach(b=>b.onclick=()=>{S.theme=b.dataset.t;saveS();relayout()});
 for(const [id,k] of [['fs','fs'],['lh','lh'],['mg','mg']])$('#'+id).oninput=e=>{S[k]=+e.target.value;saveS();relayout()};
 $('#ff').onchange=e=>{S.ff=e.target.value;saveS();relayout()};
+$('#spread').onchange=e=>{S.spread=e.target.value;saveS();relayout()};
 $('#flow').onchange=e=>{S.flow=e.target.value;saveS();relayout()};
 window.addEventListener('resize',()=>{if(cur&&cur.type==='txt')layoutTxt(cur.pos||0)});
 // list: toc + bookmarks
@@ -291,3 +294,16 @@ $('#listBtn').onclick=async()=>{
 };
 function gotoPos(p){if(cur.type==='epub')rend.display(p);else{const pi=Math.max(0,Math.min(paras.length-1,p|0));if(S.flow==='paginated'){curSec=secOf(pi);renderSec(pi)}else $('#txt').scrollTop=ps[pi].offsetTop-24}}
 renderLib();
+
+// ---- update check ----
+async function hardReload(){try{for(const k of await caches.keys())await caches.delete(k)}catch(_){}
+  try{for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister()}catch(_){}
+  location.reload()}
+async function checkUpdate(){
+  try{
+    const t=await (await fetch('sw.js?'+Date.now(),{cache:'no-store'})).text();const n=+((t.match(/reader-v(\d+)/)||[])[1]||0);
+    if(n>APP_NUM){alert('새 버전(v'+n+')이 있어요. 지금 업데이트합니다.');await hardReload()}
+    else if(confirm('최신 버전입니다 (v'+APP_NUM+').\n그래도 저장된 앱 캐시를 지우고 다시 불러올까요? (책과 읽던 위치는 유지됩니다)'))await hardReload();
+  }catch(e){alert('업데이트를 확인하지 못했어요. 인터넷 연결을 확인하세요.')}
+}
+$('#updBtn').onclick=checkUpdate;$('#updBtn2').onclick=checkUpdate;
