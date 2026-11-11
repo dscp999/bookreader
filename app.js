@@ -26,7 +26,7 @@ const cvReady=(async()=>{try{await dbp;const all=await tx('covers','readonly',s=
 }catch(e){}})();
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=34;
+const APP_NUM=35;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let resetScrollOnce=false,pendingScrollY=null,libY=0;
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
@@ -149,7 +149,7 @@ async function renderLib(useCache){
   const books=libCache.filter(b=>((b.shelf||0)%4)===curShelf).map(b=>{const p=getP(b.id);return Object.assign({},b,{pct:p?p.pct||0:0,opened:+localStorage.getItem('o_'+b.id)||0})});
   books.sort((a,b)=>sortBy==='title'?a.title.localeCompare(b.title,'ko'):sortBy==='pct'?b.pct-a.pct:sortBy==='added'?b.added-a.added:(b.opened-a.opened)||(b.added-a.added));
   $('#sort').value=sortBy;$('#viewBtn').textContent=view==='shelf'?'목록':'책꽂이';$('#editBtn').textContent=editMode?'완료':'편집';$('#autoBtn').hidden=!editMode;$('#sizeBtn').hidden=!editMode;$('#rebuildBtn').hidden=!editMode;$('#sizeBtn').textContent='표지 크기: '+({S:'작게',M:'보통',L:'크게'})[S.coverSize];$('#updBtn2').hidden=!editMode;$('#autoBtn').textContent='자동표지: '+(autoOn()?'켬':'끔');
-  $('#empty').hidden=books.length>0;renderNeedBar(books);const g=$('#grid');const se=document.scrollingElement||document.documentElement;const keepY=resetScrollOnce?0:(pendingScrollY!=null?pendingScrollY:se.scrollTop);resetScrollOnce=false;pendingScrollY=null;g.style.minHeight=g.offsetHeight+'px';g.innerHTML='';g.className=view;
+  $('#empty').hidden=books.length>0;renderNeedBar(books);const dupInfo=computeDups();renderDupBar(dupInfo);const g=$('#grid');const se=document.scrollingElement||document.documentElement;const keepY=resetScrollOnce?0:(pendingScrollY!=null?pendingScrollY:se.scrollTop);resetScrollOnce=false;pendingScrollY=null;g.style.minHeight=g.offsetHeight+'px';g.innerHTML='';g.className=view;
   const tagOf=b=>{const t=document.createElement('div');t.className='tag'+(b.pct<=0&&!b.opened?' new':'');t.textContent=b.pct<=0&&!b.opened?'NEW':Math.round(b.pct*100)+'%';return t};
   const covBtn=b=>{const x=document.createElement('button');x.className='cb';x.textContent=view==='shelf'?'표':'표지';x.onclick=e=>{e.stopPropagation();openCov(b)};return x};
   const delBtn=b=>{const x=document.createElement('button');x.className='del';x.textContent='×';x.onclick=e=>{e.stopPropagation();deleteBook(b)};return x};
@@ -157,7 +157,7 @@ async function renderLib(useCache){
     const bw=({S:70,M:92,L:124})[S.coverSize]||92;g.style.setProperty('--bw',bw+'px');const cols=Math.max(2,Math.floor((g.clientWidth||innerWidth-12)/(bw+20)));g.style.gridTemplateColumns='repeat('+cols+',1fr)';
     for(const b of books){
       const s=document.createElement('div');s.className='slot';const k=document.createElement('div');k.className='bk';
-      k.appendChild(coverEl(b));k.appendChild(tagOf(b));if(needManual(b)){const nb=document.createElement('button');nb.className='nb';nb.textContent='표지 선택';nb.onclick=e=>{e.stopPropagation();openCov(b)};k.appendChild(nb)}if(editMode){k.appendChild(delBtn(b));k.appendChild(covBtn(b))}
+      k.appendChild(coverEl(b));k.appendChild(tagOf(b));if(dupInfo.of[b.id]){const db=document.createElement('div');db.className='dupb';db.textContent='중복';k.appendChild(db)}if(needManual(b)){const nb=document.createElement('button');nb.className='nb';nb.textContent='표지 선택';nb.onclick=e=>{e.stopPropagation();openCov(b)};k.appendChild(nb)}if(editMode){k.appendChild(delBtn(b));k.appendChild(covBtn(b))}
       bindBook(k,b);s.appendChild(k);g.appendChild(s)}
     const rows=Math.max(4,Math.ceil(books.length/cols));for(let i=books.length;i<rows*cols;i++){const s=document.createElement('div');s.className='slot';g.appendChild(s)}
   }else{
@@ -165,7 +165,7 @@ async function renderLib(useCache){
     for(const b of books){
       const d=document.createElement('div');d.className='li';d.appendChild(coverEl(b));
       const inf=document.createElement('div');inf.className='info';inf.innerHTML='<b></b><small></small><div class="bar2"><i></i></div>';
-      inf.querySelector('b').textContent=b.title;inf.querySelector('small').textContent=({epub:'EPUB',txt:'TXT',comic:'만화'})[b.type]+' · '+Math.round(b.pct*100)+'%'+(b.opened?' · '+new Date(b.opened).toLocaleDateString('ko-KR'):' · 새 책');
+      inf.querySelector('b').textContent=b.title;inf.querySelector('small').textContent=({epub:'EPUB',txt:'TXT',comic:'만화'})[b.type]+(dupInfo.of[b.id]?' · 중복 '+dupInfo.of[b.id]:'')+' · '+Math.round(b.pct*100)+'%'+(b.opened?' · '+new Date(b.opened).toLocaleDateString('ko-KR'):' · 새 책');
       inf.querySelector('i').style.width=Math.round(b.pct*100)+'%';d.appendChild(inf);if(!editMode&&needManual(b)){const cb=covBtn(b);cb.textContent='표지 선택';d.appendChild(cb)}if(editMode){d.appendChild(covBtn(b));d.appendChild(delBtn(b))}
       bindBook(d,b);g.appendChild(d)}
   }
@@ -792,3 +792,19 @@ function nextManual(){
   manualOn=false;manualQ=[];$('#cov').hidden=true;renderLib(true);toast('표지 선택을 모두 마쳤어요');
 }
 $('#covSkip').onclick=()=>{$('#cov').hidden=true;nextManual()};
+
+// ---- same-title detection ----
+const dupKey=t=>cleanTitle(t||'').toLowerCase().replace(/[\s\-_.,:;!?'"~·]+/g,'');
+function computeDups(){const g={};for(const b of libCache){const k=dupKey(b.title);if(!k)continue;(g[k]=g[k]||[]).push(b)}
+  const groups=Object.values(g).filter(a=>a.length>1);const of={};groups.forEach(a=>a.forEach(b=>of[b.id]=a.length+'권'));return {groups,of}}
+function renderDupBar(info){const bar=$('#dupBar');if(!bar)return;const n=info.groups.length;bar.hidden=n===0;if(!n)return;
+  const cnt=info.groups.reduce((s,a)=>s+a.length,0);bar.innerHTML='';const s=document.createElement('span');s.textContent='같은 제목이 '+n+'종 ('+cnt+'권) 있어요';
+  const b=document.createElement('button');b.textContent='중복 확인';b.onclick=openDups;bar.appendChild(s);bar.appendChild(b)}
+function openDups(){const info=computeDups();const names=shelfNames();const body=$('#actBody');body.innerHTML='';$('#actT').textContent='같은 제목의 책';
+  if(!info.groups.length){const p=document.createElement('p');p.textContent='중복된 책이 없어요.';body.appendChild(p)}
+  for(const grp of info.groups){const h=document.createElement('div');h.className='dgh';h.textContent=grp[0].title;body.appendChild(h);
+    for(const b of grp){const p=getP(b.id);const x=document.createElement('button');x.className='dgi';
+      x.textContent=names[(b.shelf||0)%4]+' · '+({epub:'EPUB',txt:'TXT',comic:'만화'})[b.type]+' · '+Math.round((p&&p.pct||0)*100)+'% 읽음 · 이름: '+b.title+'  [삭제]';
+      x.onclick=async()=>{if(!(await uiConfirm('"'+b.title+'" ('+names[(b.shelf||0)%4]+')을 삭제할까요?\n\n※ 읽던 위치와 북마크도 같이 지워져요.')))return;
+        await dbDel(b.id);['p_','b_','o_','k_','f_'].forEach(k=>localStorage.removeItem(k+b.id));cvDel(b.id);libCache=libCache.filter(y=>y.id!==b.id);renderLib(true);openDups()};body.appendChild(x)}}
+  const c=document.createElement('button');c.textContent='닫기';c.onclick=()=>$('#act').hidden=true;body.appendChild(c);$('#act').hidden=false}

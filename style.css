@@ -113,3 +113,9 @@ h1{margin:0;font-size:22px;text-shadow:0 2px 4px #0008}
 #needBar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 12px 8px;padding:8px 10px;border-radius:10px;background:var(--card,#0004);font-size:13px}
 #lib #needBar button{background:var(--accent,#c98a3e);color:var(--accentfg,#2a1a0f);border:0;padding:6px 10px;border-radius:8px;font-size:13px;font-weight:700;white-space:nowrap}
 #lib .bk .nb{position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:var(--accent,#c98a3e);color:var(--accentfg,#2a1a0f);border:0;border-radius:10px;padding:2px 8px;font-size:11px;font-weight:700;z-index:2;white-space:nowrap}
+
+#dupBar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 12px 8px;padding:8px 10px;border-radius:10px;background:var(--card,#0004);font-size:13px}
+#lib #dupBar button{background:var(--btn,#0005);color:var(--fg);border:1px solid var(--accent,#c98a3e);padding:6px 10px;border-radius:8px;font-size:13px;font-weight:700;white-space:nowrap}
+.dupb{position:absolute;left:-2px;bottom:6px;background:#d64545;color:#fff;font-size:11px;font-weight:700;padding:1px 6px;border-radius:0 8px 8px 0}
+.dgh{margin:10px 0 2px;font-weight:700;opacity:.9}
+#act button.dgi{font-size:14px;padding:10px 8px}
