@@ -137,3 +137,7 @@ h1{margin:0;font-size:22px;text-shadow:0 2px 4px #0008}
 #cmPage.two:not(.zoom):not(.fit-cover):not(.fit-stretch):not(.fit-w):not(.fit-h):not(.fit-o){gap:0;align-items:center;justify-content:center}
 #cmPage.two:not(.fit-cover):not(.fit-stretch) img{margin:0}
 #cmPage.two:not(.zoom):not(.fit-cover):not(.fit-stretch) img:first-child{box-shadow:6px 0 14px #000a}
+
+.cin{display:flex;gap:8px;align-items:center}.cin input[type=color]{width:44px;height:36px;padding:0;border:1px solid #8885;border-radius:8px;background:none}.cin input[type=text]{width:92px;padding:8px;border-radius:8px;border:1px solid #8885;background:var(--ui);color:var(--fg);font-size:14px}
+#colPresets{display:flex;gap:6px;flex-wrap:wrap}#colPresets .cpre{width:34px;height:34px;padding:0;border-radius:50%;border:2px solid #8886;font-weight:700}
+#colPrev{padding:6px 10px;border-radius:8px;border:1px solid #8885;font-size:14px}

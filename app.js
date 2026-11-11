@@ -27,12 +27,13 @@ const cvReady=(async()=>{try{await dbp;const all=await tx('covers','readonly',s=
 function toast(msg,sticky){const rd=document.getElementById('reader');if(rd&&!rd.hidden){const t0=document.getElementById('toast');if(t0)t0.style.display='none';return}
   let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=42;
+const APP_NUM=43;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr',comicFit:'contain',comicTrim:'on'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let resetScrollOnce=false,pendingScrollY=null,libY=0;
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
-function applyTheme(){document.body.className='t-'+S.theme}
+function applyTheme(){document.body.className='t-'+S.theme;applyReadColors()}
+function applyReadColors(){const st=document.getElementById('stage');if(!st)return;if(S.bgC)st.style.setProperty('--bg',S.bgC);else st.style.removeProperty('--bg');if(S.fgC)st.style.setProperty('--fg',S.fgC);else st.style.removeProperty('--fg');const r=document.getElementById('reader');if(r){if(S.bgC)r.style.setProperty('--bg',S.bgC);else r.style.removeProperty('--bg')}}
 applyTheme();
 const getP=id=>{try{return JSON.parse(localStorage.getItem('p_'+id)||'null')}catch(_){return null}};
 const setP=()=>{if(cur)localStorage.setItem('p_'+cur.id,JSON.stringify({pos:cur.pos,pct:cur.pct,sig:cur.sig}))};
@@ -290,7 +291,7 @@ function compactDoc(d){try{
   d.querySelectorAll('p').forEach(p=>{let n=p.firstChild;while(n&&n.nodeType===1&&n.childNodes.length===1&&n.firstChild)n=n.firstChild;if(n&&n.nodeType===3)n.nodeValue=n.nodeValue.replace(/^[\u00a0\u3000 \t]+/,'')});
 }catch(e){}}
 function applyEpubStyle(){
-  if(!rend)return;const cs=getComputedStyle(document.body);
+  if(!rend)return;const cs=getComputedStyle(document.getElementById('stage'));
   rend.flow(S.flow);$('#stage').classList.toggle('noz',S.flow==='scrolled');rend.spread(S.spread==='2'?'both':S.spread==='1'?'none':'auto',800);
   const bg=cs.getPropertyValue('--bg'),fg=cs.getPropertyValue('--fg');
   const ffRule=S.ff==='book'?{}:{'font-family':FF[S.ff]+' !important'};
@@ -339,7 +340,7 @@ function openTxt(){
   layoutTxt(pi);
 }
 function layoutTxt(pi,last){
-  const t=$('#txt'),i=$('#txtin'),cs=getComputedStyle(document.body);
+  const t=$('#txt'),i=$('#txtin'),cs=getComputedStyle(document.getElementById('stage'));
   const paged=S.flow==='paginated';$('#stage').classList.toggle('noz',!paged);t.classList.toggle('scroll',!paged);i.classList.toggle('sc',!paged);i.classList.remove('sp-off','sp-n','sp-s');i.classList.add('sp-'+S.space);
   const padH=S.mg+8,padV=24;t.style.padding=padV+'px '+padH+'px';t.style.background=cs.getPropertyValue('--bg');
   const base='font-size:'+S.fs+'px;line-height:'+S.lh+';font-family:'+FF[S.ff]+';color:'+cs.getPropertyValue('--fg')+';';
@@ -408,12 +409,12 @@ $('#seek').onchange=e=>{
 $('#back').onclick=async()=>{setP();if(rend){rend.destroy();book.destroy();rend=book=null}cmCleanup();$('#fitBtn').hidden=true;$('#comic').hidden=true;$('#stage').classList.remove('noz');cur=null;$('#reader').hidden=true;$('#lib').hidden=false;pendingScrollY=libY;renderLib(true)};
 // panels
 function syncUI(){
-  $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;$('#cmMode').value=S.comicMode;$('#cmDir').value=S.comicDir;$('#cmFit').value=S.comicFit||'contain';$('#cmTrim').value=S.comicTrim||'on';$('#space').value=S.space;$('#joinSel').value=S.join;$('#ver').textContent='v'+APP_NUM;showPct();
+  $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;syncColorUI();$('#cmMode').value=S.comicMode;$('#cmDir').value=S.comicDir;$('#cmFit').value=S.comicFit||'contain';$('#cmTrim').value=S.comicTrim||'on';$('#space').value=S.space;$('#joinSel').value=S.join;$('#ver').textContent='v'+APP_NUM;showPct();
 }
 function relayout(){applyTheme();if(!cur)return;if(cur.type==='comic'){cmRelayout();return}if(cur.type==='epub'){if((epubFFApplied!==null&&(S.ff==='book')!==(epubFFApplied==='book'))||(epubSpApplied!==null&&epubSpApplied!==S.space)){try{rend.destroy();book.destroy()}catch(_){}rend=book=null;epubFFApplied=epubSpApplied=null;openEpub();return}applyEpubStyle()}else{if(prepSig()!==cur.sig){const f=cur.pct||0;loadParas();layoutTxt(paraOf(f))}else layoutTxt(cur.pos||0)}}
 $('#setBtn').onclick=()=>{$('#panel').hidden=false;$('#list').hidden=true};
 $('#closeP').onclick=()=>$('#panel').hidden=true;$('#closeL').onclick=()=>$('#list').hidden=true;
-document.querySelectorAll('#themes button').forEach(b=>b.onclick=()=>{S.theme=b.dataset.t;saveS();relayout()});
+document.querySelectorAll('#themes button').forEach(b=>b.onclick=()=>{S.theme=b.dataset.t;S.bgC=null;S.fgC=null;saveS();syncColorUI();relayout()});
 for(const [id,k] of [['fs','fs'],['lh','lh'],['mg','mg']])$('#'+id).oninput=e=>{S[k]=+e.target.value;saveS();relayout()};
 $('#ff').onchange=e=>{S.ff=e.target.value;saveS();relayout()};
 $('#spread').onchange=e=>{S.spread=e.target.value;saveS();relayout()};
@@ -851,3 +852,17 @@ function cmTrim(im){
     im.style.objectViewBox='inset('+T2.toFixed(2)+'% '+R2.toFixed(2)+'% '+B2.toFixed(2)+'% '+L2.toFixed(2)+'%)';im.dataset.trim='1';
   }catch(e){}
 }
+
+// ---- custom reading colours ----
+const HEX=/^#[0-9a-fA-F]{6}$/;
+const COLOR_PRESETS=[['흰 바탕','#ffffff','#222222'],['검정 바탕','#000000','#d8d8d8'],['세피아','#f4ecd8','#5b4636'],['눈 편한 초록','#c7edcc','#243a2a'],['회색','#3a3a3c','#e5e5e5'],['밤 노랑','#101010','#d9c27a'],['파랑','#0f1b33','#cfe0ff'],['종이','#fbf6e9','#2b2b2b']];
+function syncColorUI(){const cs=getComputedStyle(document.getElementById('stage'));const bg=S.bgC||(cs.getPropertyValue('--bg')||'').trim(),fg=S.fgC||(cs.getPropertyValue('--fg')||'').trim();
+  const norm=v=>{if(HEX.test(v))return v.toLowerCase();const m=v.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/i);return m?('#'+m[1]+m[1]+m[2]+m[2]+m[3]+m[3]).toLowerCase():null};
+  const b=norm(bg)||'#000000',f=norm(fg)||'#ffffff';$('#bgPick').value=b;$('#bgHex').value=b;$('#fgPick').value=f;$('#fgHex').value=f;
+  const pv=$('#colPrev');if(pv){pv.style.background=b;pv.style.color=f}}
+function setColor(kind,v){if(!HEX.test(v))return;if(kind==='bg')S.bgC=v.toLowerCase();else S.fgC=v.toLowerCase();saveS();applyTheme();syncColorUI();relayout()}
+$('#bgPick').oninput=e=>setColor('bg',e.target.value);$('#fgPick').oninput=e=>setColor('fg',e.target.value);
+$('#bgHex').onchange=e=>{let v=e.target.value.trim();if(v&&v[0]!=='#')v='#'+v;if(HEX.test(v))setColor('bg',v);else{syncColorUI();uiAlert('색은 #000000 같은 6자리 코드로 입력하세요.')}};
+$('#fgHex').onchange=e=>{let v=e.target.value.trim();if(v&&v[0]!=='#')v='#'+v;if(HEX.test(v))setColor('fg',v);else{syncColorUI();uiAlert('색은 #ffffff 같은 6자리 코드로 입력하세요.')}};
+$('#colReset').onclick=()=>{S.bgC=null;S.fgC=null;saveS();applyTheme();syncColorUI();relayout()};
+(function(){const box=$('#colPresets');COLOR_PRESETS.forEach(([n,bg,fg])=>{const b=document.createElement('button');b.className='cpre';b.textContent='가';b.title=n;b.style.background=bg;b.style.color=fg;b.onclick=()=>{S.bgC=bg;S.fgC=fg;saveS();applyTheme();syncColorUI();relayout()};box.appendChild(b)})})();

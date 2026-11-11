@@ -27,6 +27,10 @@
 <div id="panel" class="sheet" hidden>
     <h3>설정</h3>
     <div class="row">테마<span id="themes"><button data-t="light">밝게</button><button data-t="sepia">세피아</button><button data-t="dark">어둡게</button><button data-t="black">검정</button></span></div>
+    <div class="row">배경색<span class="cin"><input id="bgPick" type="color"><input id="bgHex" type="text" maxlength="7" size="8"></span></div>
+    <div class="row">글자색<span class="cin"><input id="fgPick" type="color"><input id="fgHex" type="text" maxlength="7" size="8"></span></div>
+    <div class="row"><span id="colPresets"></span><span id="colPrev">가나다 Abc</span></div>
+    <div class="row">색 직접 지정 해제<button id="colReset">테마 색으로</button></div>
     <div class="row">글자 크기<input id="fs" type="range" min="12" max="40" step="1"></div>
     <div class="row">줄 간격<input id="lh" type="range" min="1.2" max="2.4" step="0.1"></div>
     <div class="row">여백<input id="mg" type="range" min="0" max="60" step="4"></div>
