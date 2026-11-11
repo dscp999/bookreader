@@ -27,8 +27,8 @@ const cvReady=(async()=>{try{await dbp;const all=await tx('covers','readonly',s=
 function toast(msg,sticky){const rd=document.getElementById('reader');if(rd&&!rd.hidden){const t0=document.getElementById('toast');if(t0)t0.style.display='none';return}
   let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=41;
-const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr',comicFit:'contain'},JSON.parse(localStorage.getItem('rs')||'{}'));
+const APP_NUM=42;
+const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr',comicFit:'contain',comicTrim:'on'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let resetScrollOnce=false,pendingScrollY=null,libY=0;
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
@@ -261,7 +261,7 @@ async function openBook(id){
   try{const bm=JSON.parse(localStorage.getItem('b_'+id)||'null');if(bm)cur.bookmarks=bm}catch(_){}
   libY=(document.scrollingElement||document.documentElement).scrollTop;$('#lib').hidden=true;$('#reader').hidden=false;$('#reader').classList.remove('hide');
   $('#title').textContent=cur.title;locReady=false;
-  $('#comic').hidden=true;$('#stage').classList.remove('noz');$('#zoomBtn').hidden=true;
+  $('#comic').hidden=true;$('#stage').classList.remove('noz');$('#zoomBtn').hidden=true;$('#fitBtn').hidden=true;
   if(cur.type==='epub')await openEpub();else if(cur.type==='comic')await openComic();else openTxt();
   syncUI();
 }
@@ -405,10 +405,10 @@ $('#seek').onchange=e=>{
   if(cur.type==='epub'){if(locReady)rend.display(book.locations.cfiFromPercentage(f))}
   else txtSeek(f);
 };
-$('#back').onclick=async()=>{setP();if(rend){rend.destroy();book.destroy();rend=book=null}cmCleanup();$('#comic').hidden=true;$('#stage').classList.remove('noz');cur=null;$('#reader').hidden=true;$('#lib').hidden=false;pendingScrollY=libY;renderLib(true)};
+$('#back').onclick=async()=>{setP();if(rend){rend.destroy();book.destroy();rend=book=null}cmCleanup();$('#fitBtn').hidden=true;$('#comic').hidden=true;$('#stage').classList.remove('noz');cur=null;$('#reader').hidden=true;$('#lib').hidden=false;pendingScrollY=libY;renderLib(true)};
 // panels
 function syncUI(){
-  $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;$('#cmMode').value=S.comicMode;$('#cmDir').value=S.comicDir;$('#cmFit').value=S.comicFit||'contain';$('#space').value=S.space;$('#joinSel').value=S.join;$('#ver').textContent='v'+APP_NUM;showPct();
+  $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;$('#cmMode').value=S.comicMode;$('#cmDir').value=S.comicDir;$('#cmFit').value=S.comicFit||'contain';$('#cmTrim').value=S.comicTrim||'on';$('#space').value=S.space;$('#joinSel').value=S.join;$('#ver').textContent='v'+APP_NUM;showPct();
 }
 function relayout(){applyTheme();if(!cur)return;if(cur.type==='comic'){cmRelayout();return}if(cur.type==='epub'){if((epubFFApplied!==null&&(S.ff==='book')!==(epubFFApplied==='book'))||(epubSpApplied!==null&&epubSpApplied!==S.space)){try{rend.destroy();book.destroy()}catch(_){}rend=book=null;epubFFApplied=epubSpApplied=null;openEpub();return}applyEpubStyle()}else{if(prepSig()!==cur.sig){const f=cur.pct||0;loadParas();layoutTxt(paraOf(f))}else layoutTxt(cur.pos||0)}}
 $('#setBtn').onclick=()=>{$('#panel').hidden=false;$('#list').hidden=true};
@@ -726,7 +726,7 @@ async function cmRelayout(){if(!cm||!cm.names.length)return;const z=cm,idx=z.idx
 function layoutComic(idx){
   const web=cm.mode==='web';cm.zoom=false;
   $('#cmWeb').hidden=!web;$('#cmPage').hidden=web;$('#cmPage').classList.remove('zoom');
-  $('#stage').classList.toggle('noz',web);$('#zoomBtn').hidden=web;
+  $('#stage').classList.toggle('noz',web);$('#zoomBtn').hidden=web;$('#fitBtn').hidden=web;syncFitBtn();
   try{cm.obs&&cm.obs.disconnect()}catch(_){}cmRelease(()=>false);
   if(web)buildWeb(idx);else buildPage(idx);
 }
@@ -765,7 +765,7 @@ async function showGroup(){
   const z=cm;const box=$('#cmPage');const g=z.groups[z.group];const tk=++z.tok;
   const urls=await Promise.all(g.map(cmUrl));if(cm!==z||tk!==z.tok)return;
   box.className=(S.comicDir==='rtl'?'rtl ':'')+(g.length>1?'two':'')+' fit-'+(S.comicFit||'contain')+(z.zoom?' zoom':'');box.innerHTML='';box.scrollTo(0,0);
-  urls.forEach(u=>{const im=new Image();im.src=u;box.appendChild(im)});
+  urls.forEach(u=>{const im=new Image();if(S.comicTrim!=='off')im.onload=()=>cmTrim(im);im.src=u;box.appendChild(im)});
   const first=g[0];z.idx=first;cur.pos=first;cur.pct=z.names.length>1?first/(z.names.length-1):1;showPct();setP();
   cmRelease(i=>Math.abs(i-first)<=3);
   [z.groups[z.group+1],z.groups[z.group-1]].forEach(gg=>gg&&gg.forEach(i=>cmUrl(i)));
@@ -786,7 +786,8 @@ $('#zoomBtn').onclick=()=>{if(!cm||cm.mode!=='page')return;cm.zoom=!cm.zoom;$('#
 $('#comic').addEventListener('click',()=>{if($('#stage').classList.contains('noz'))$('#reader').classList.toggle('hide')});
 $('#txt').addEventListener('click',()=>{if(cur&&cur.type==='txt'&&$('#stage').classList.contains('noz'))$('#reader').classList.toggle('hide')});
 $('#cmMode').onchange=e=>{S.comicMode=e.target.value;saveS();relayout()};
-$('#cmFit').onchange=e=>{S.comicFit=e.target.value;saveS();relayout()};
+$('#cmFit').onchange=e=>{S.comicFit=e.target.value;saveS();syncFitBtn();relayout()};
+$('#cmTrim').onchange=e=>{S.comicTrim=e.target.value;saveS();relayout()};
 $('#cmDir').onchange=e=>{S.comicDir=e.target.value;saveS();relayout()};
 
 // ---- books the automatic search could not cover: choose manually, one by one ----
@@ -833,3 +834,20 @@ window.onNativeFolder=json=>{
 function syncFs(){const b=$('#fsBtn');if(b)b.textContent=document.fullscreenElement?'해제':'켜기'}
 $('#fsBtn').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen({navigationUI:'hide'})}catch(e){uiAlert('이 환경에서는 전체 화면을 켤 수 없어요.\n(크롬 메뉴 ⋮ > "홈 화면에 추가"로 설치한 앱이나 크롬에서 사용해 보세요)')}syncFs()};
 document.addEventListener('fullscreenchange',syncFs);
+
+// ---- comic: one-tap fill/fit + automatic margin trim ----
+function syncFitBtn(){const b=$('#fitBtn');if(!b)return;const fill=(S.comicFit==='cover'||S.comicFit==='stretch');b.textContent=fill?'맞춤':'채움'}
+$('#fitBtn').onclick=()=>{const fill=(S.comicFit==='cover'||S.comicFit==='stretch');S.comicFit=fill?'contain':'cover';saveS();$('#cmFit').value=S.comicFit;syncFitBtn();relayout()};
+const _trimCv=document.createElement('canvas');
+function cmTrim(im){
+  try{const w=160,h=Math.max(8,Math.round(im.naturalHeight*160/im.naturalWidth));_trimCv.width=w;_trimCv.height=h;const x=_trimCv.getContext('2d',{willReadFrequently:true});x.drawImage(im,0,0,w,h);const d=x.getImageData(0,0,w,h).data;
+    const px=(i,j)=>{const k=(j*w+i)*4;return (d[k]+d[k+1]+d[k+2])/3};
+    const bg=(px(1,1)+px(w-2,1)+px(1,h-2)+px(w-2,h-2))/4;const T=34;const isC=v=>Math.abs(v-bg)>T;
+    const rowHas=j=>{let n=0;for(let i=0;i<w;i++)if(isC(px(i,j)))n++;return n>w*0.012};
+    const colHas=i=>{let n=0;for(let j=0;j<h;j++)if(isC(px(i,j)))n++;return n>h*0.012};
+    let t=0,b=h-1,l=0,r=w-1;while(t<h-1&&!rowHas(t))t++;while(b>t&&!rowHas(b))b--;while(l<w-1&&!colHas(l))l++;while(r>l&&!colHas(r))r--;
+    const pad=1.2;let T2=Math.max(0,t/h*100-pad),B2=Math.max(0,(h-1-b)/h*100-pad),L2=Math.max(0,l/w*100-pad),R2=Math.max(0,(w-1-r)/w*100-pad);
+    if(T2+B2>40||L2+R2>40)return;if(T2+B2+L2+R2<1.5)return;
+    im.style.objectViewBox='inset('+T2.toFixed(2)+'% '+R2.toFixed(2)+'% '+B2.toFixed(2)+'% '+L2.toFixed(2)+'%)';im.dataset.trim='1';
+  }catch(e){}
+}
