@@ -26,7 +26,7 @@ const cvReady=(async()=>{try{await dbp;const all=await tx('covers','readonly',s=
 }catch(e){}})();
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=33;
+const APP_NUM=34;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let resetScrollOnce=false,pendingScrollY=null,libY=0;
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
@@ -194,35 +194,48 @@ async function expandZip(f,notes){
   if(!out.length)notes.push(f.name+': 안에 EPUB/TXT가 없어요 ');
   return out;
 }
-$('#file').onchange=async e=>{
-  const all=[...e.target.files];e.target.value='';if(!all.length)return;
+async function importFiles(all,fromDir){
+  if(!all.length)return;
   const kindOf=f=>{const n=f.name,t=f.type||'';if(/\.epub$/i.test(n)||t==='application/epub+zip')return 'epub';if(/\.txt$/i.test(n)||t==='text/plain')return 'txt';if(/\.(zip|cbz)$/i.test(n)||/zip/i.test(t))return 'zip';if(IMG_RE.test(n)||/^image\//.test(t))return 'img';return null};
+  const relOf=f=>f.webkitRelativePath||f._rel||f.name;
   const notes=[],items=[],imgs=[];let skipped=0;
   for(const f of all){const k=kindOf(f);
     if(!k){skipped++;continue}
-    if(k==='zip'){toast('ZIP 여는 중: '+f.name,true);try{items.push(...await expandZip(f,notes))}catch(err){notes.push(f.name+': ZIP을 열 수 없어요 ('+((err&&err.message)||err)+')')}}
+    if(k==='zip'){toast('ZIP 여는 중: '+f.name,true);try{(await expandZip(f,notes)).forEach(x=>{x.rel=relOf(f)+'|'+x.name;x.size=f.size;items.push(x)})}catch(err){notes.push(f.name+': ZIP을 열 수 없어요 ('+((err&&err.message)||err)+')')}}
     else if(k==='img')imgs.push(f);
-    else items.push({name:f.name,kind:k,get:()=>f.arrayBuffer()})}
-  if(imgs.length){const stem=(imgs[0].name.replace(IMG_RE,'').replace(/[\s_\-.]*\d+$/,'')||'만화');
+    else items.push({name:f.name,kind:k,rel:relOf(f),size:f.size,get:()=>f.arrayBuffer()})}
+  if(fromDir&&imgs.length){const groups={};for(const im of imgs){const rp=relOf(im);const d=rp.includes('/')?rp.slice(0,rp.lastIndexOf('/')):'';(groups[d]=groups[d]||[]).push(im)}
+    for(const d of Object.keys(groups)){const g=groups[d];if(g.length<2){skipped+=g.length;continue}g.sort((p,q)=>p.name.localeCompare(q.name,'ko',{numeric:true}));const nm=(d.split('/').pop()||'만화');
+      items.push({name:nm,kind:'comic',rel:d+'/*',size:g.length,get:async()=>{const z=new JSZip();for(const im of g)z.file(im.name,im,{compression:'STORE',binary:true});return await z.generateAsync({type:'arraybuffer',compression:'STORE'})}})}}
+  else if(imgs.length){const stem=(imgs[0].name.replace(IMG_RE,'').replace(/[\s_\-.]*\d+$/,'')||'만화');
     const title=await uiPrompt('이미지 '+imgs.length+'장을 한 권의 만화로 등록해요.\n만화 제목',stem);
     if(title&&title.trim()){imgs.sort((p,q)=>p.name.localeCompare(q.name,'ko',{numeric:true}));toast('이미지 묶는 중...',true);const z=new JSZip();for(const im of imgs)z.file(im.name,im,{compression:'STORE',binary:true});
       const zbuf=await z.generateAsync({type:'arraybuffer',compression:'STORE'});items.push({name:title.trim(),kind:'comic',get:async()=>zbuf})}}
-  if(!items.length){const tt=document.getElementById('toast');if(tt)tt.style.display='none';uiAlert(notes.length?notes.slice(0,3).join('\n'):'선택한 파일 '+all.length+'개가 EPUB/TXT/ZIP 형식이 아니라서 등록하지 않았어요.\n(예: '+all[0].name+')');return}
+  let dup=0;if(fromDir){const seen=new Set(libCache.map(b=>b.src).filter(Boolean));for(let i=items.length-1;i>=0;i--){if(seen.has(items[i].rel+'#'+items[i].size)){items.splice(i,1);dup++}}}
+  if(!items.length){const tt=document.getElementById('toast');if(tt)tt.style.display='none';uiAlert(notes.length?notes.slice(0,3).join('\n'):(dup?'이 폴더의 책 '+dup+'권은 이미 모두 등록돼 있어요.':'선택한 파일 '+all.length+'개가 EPUB/TXT/ZIP/이미지 형식이 아니라서 등록하지 않았어요.\n(예: '+all[0].name+')'));return}
   if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
   const target=curShelf,tname=shelfNames()[target];const fails=[];
   const total=items.length;let idx=0,done=0;toast('책 등록 중 0/'+total+' → '+tname,true);
   const worker=async()=>{while(idx<total){const it=items[idx++];
     try{const data=await it.get();const nid=Date.now()+Math.random().toString(36).slice(2,7);
-      await dbAdd({id:nid,title:it.name.replace(/\.(epub|txt)$/i,'')||it.name,type:it.kind,pos:null,pct:0,bookmarks:[],shelf:target,added:Date.now()+idx},data);
+      await dbAdd({id:nid,title:it.name.replace(/\.(epub|txt)$/i,'')||it.name,type:it.kind,pos:null,pct:0,bookmarks:[],shelf:target,src:it.rel?it.rel+'#'+it.size:undefined,added:Date.now()+idx},data);
       if(it.kind==='comic'){try{const cu=await comicCover(data);if(cu)cvSet(nid,cu)}catch(_){}}}
     catch(err){console.error(err);fails.push(it.name+': '+((err&&err.message)||err))}
     done++;toast('책 등록 중 '+done+'/'+total,true);if(done%6===0)await renderLib()}};
   await Promise.all([worker(),worker(),worker()]);
   await renderLib();ensureCovers();
-  const okN=done-fails.length;toast(okN+'권을 "'+tname+'"에 등록했어요'+(fails.length?' (실패 '+fails.length+'권)':'')+(skipped?' (형식 불일치 '+skipped+'개 제외)':''));
+  const okN=done-fails.length;toast(okN+'권을 "'+tname+'"에 등록했어요'+(fails.length?' (실패 '+fails.length+'권)':'')+(skipped?' (형식 불일치 '+skipped+'개 제외)':'')+(dup?' (이미 있던 '+dup+'권 제외)':''));
   if(fails.length||notes.length){let st='';if(fails.length){try{const q=await navigator.storage.estimate();st='\n저장공간: 사용 '+Math.round(q.usage/1048576)+'MB / 한도 '+Math.round(q.quota/1048576)+'MB'}catch(_){}}
     uiAlert('확인이 필요한 항목이 있어요.\n'+fails.concat(notes).slice(0,4).join('\n')+st)}
-};
+}
+$('#file').onchange=e=>{const a=[...e.target.files];e.target.value='';importFiles(a,false)};
+$('#dirFile').onchange=e=>{const a=[...e.target.files];e.target.value='';if(!a.length){uiAlert('이 기기에서는 폴더 선택이 지원되지 않을 수 있어요.\n안 되면 폴더를 ZIP으로 묶어서 "+ 책 추가"로 넣어 주세요.');return}importFiles(a,true)};
+async function pickDirectory(){
+  if(window.showDirectoryPicker){try{const root=await showDirectoryPicker();const out=[];
+    const walk=async(h,p)=>{for await(const [n,e] of h.entries()){if(e.kind==='directory')await walk(e,p+n+'/');else{const f=await e.getFile();f._rel=p+n;out.push(f)}}};await walk(root,root.name+'/');importFiles(out,true);return}catch(e){if(e&&e.name==='AbortError')return}}
+  $('#dirFile').click();
+}
+$('#dirBtn').onclick=pickDirectory;
 
 // ---- reader state ----
 let cur=null,book=null,rend=null,txtW=0,txtPages=1,txtPage=0,locReady=false;
