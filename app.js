@@ -2,10 +2,11 @@
 const $=s=>document.querySelector(s);
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 // ---- IndexedDB ----
-const dbp=new Promise((res,rej)=>{const r=indexedDB.open('reader',2);
+const dbp=new Promise((res,rej)=>{const r=indexedDB.open('reader',3);
   r.onupgradeneeded=e=>{const db=r.result;
     if(!db.objectStoreNames.contains('books'))db.createObjectStore('books',{keyPath:'id'});
     if(!db.objectStoreNames.contains('files'))db.createObjectStore('files',{keyPath:'id'});
+    if(!db.objectStoreNames.contains('covers'))db.createObjectStore('covers',{keyPath:'id'});
     if(e.oldVersion===1){const t=r.transaction,bs=t.objectStore('books'),fl=t.objectStore('files');
       bs.openCursor().onsuccess=ev=>{const c=ev.target.result;if(!c)return;const v=c.value;if(v.data){fl.put({id:v.id,data:v.data});delete v.data;c.update(v)}c.continue()}}};
   r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
@@ -15,9 +16,17 @@ async function dbGet(id){const m=await tx('books','readonly',s=>s.get(id));if(!m
 const dbPut=b=>{const m=Object.assign({},b);delete m.data;return tx('books','readwrite',s=>s.put(m))};
 const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,data});return b.put(m)});
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
+const CV=new Map();
+const cvGet=id=>CV.has(id)?CV.get(id):null;
+function cvSet(id,u){CV.set(id,u);tx('covers','readwrite',s=>s.put({id,data:u})).catch(()=>{})}
+function cvDel(id){if(!CV.has(id))return;CV.delete(id);tx('covers','readwrite',s=>s.delete(id)).catch(()=>{})}
+const cvReady=(async()=>{try{await dbp;const all=await tx('covers','readonly',s=>s.getAll());for(const r of all||[])CV.set(r.id,r.data);
+  const mig=Object.keys(localStorage).filter(k=>k.startsWith('c_'));
+  for(const k of mig){const id=k.slice(2),v=localStorage.getItem(k);if(v!=null){if(!CV.has(id)){CV.set(id,v);await tx('covers','readwrite',s=>s.put({id,data:v})).catch(()=>{})}localStorage.removeItem(k)}}
+}catch(e){}})();
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=32;
+const APP_NUM=33;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let resetScrollOnce=false,pendingScrollY=null,libY=0;
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
@@ -33,7 +42,7 @@ function hueOf(s){let h=0;for(const c of s)h=(h*31+c.charCodeAt(0))%360;return h
 const STY=[['#8e2de2','#4a00e0'],['#c31432','#240b36'],['#134e5e','#71b280'],['#d38312','#a83279'],['#1e3c72','#2a5298'],['#0f2027','#2c5364'],['#614385','#516395'],['#b92b27','#1565c0'],['#4b6cb7','#182848'],['#3a1c71','#d76d77'],['#355c7d','#c06c84'],['#232526','#5a5a5a']];
 function styBg(n){const s=STY[n%STY.length];return 'linear-gradient(135deg,'+s[0]+','+s[1]+')'}
 function coverEl(b){
-  const d=document.createElement('div');d.className='cover';const c=localStorage.getItem('c_'+b.id);
+  const d=document.createElement('div');d.className='cover';const c=cvGet(b.id);
   if(c&&c.startsWith('style:')){d.style.background=styBg(+c.slice(6));d.classList.add('fr');const s=document.createElement('span');s.textContent=b.title;d.appendChild(s)}
   else if(c&&c!=='none'&&c!=='x'){d.style.backgroundImage='url("'+c+'")';d.classList.add('img')}
   else{const h=hueOf(b.title);d.style.background='linear-gradient(135deg,hsl('+h+',45%,38%),hsl('+((h+30)%360)+',50%,22%))';const s=document.createElement('span');s.textContent=b.title;d.appendChild(s)}
@@ -89,13 +98,13 @@ function bumpStat(ok){let s={ok:0,fail:0};try{s=JSON.parse(localStorage.getItem(
 const getFail=id=>{try{return JSON.parse(localStorage.getItem('f_'+id)||'null')}catch(_){return null}};
 const failWait=n=>(n<=1?1:n===2?3:14)*86400000;
 function markFail(id,n){const f=getFail(id)||{n:0};localStorage.setItem('f_'+id,JSON.stringify({t:Date.now(),n:n||f.n+1}))}
-const needCover=b=>{const c=localStorage.getItem('c_'+b.id);if(c&&c!=='none')return false;if(triedSess.has(b.id))return false;const f=getFail(b.id);return !(f&&f.n>=2)};
-const needManual=b=>{if(b.type==='comic')return false;const c=localStorage.getItem('c_'+b.id);if(c&&c!=='none')return false;const f=getFail(b.id);return !!(f&&f.n>=2)};
+const needCover=b=>{const c=cvGet(b.id);if(c&&c!=='none')return false;if(triedSess.has(b.id))return false;const f=getFail(b.id);return !(f&&f.n>=2)};
+const needManual=b=>{if(b.type==='comic')return false;const c=cvGet(b.id);if(c&&c!=='none')return false;const f=getFail(b.id);return !!(f&&f.n>=2)};
 async function ensureCovers(){
   if(!autoOn())return;
   if(coverBusy){coverRerun=true;return}
   const hasNative=nativeOK();
-  if(hasNative&&localStorage.getItem('autoMig2')!=='1'){for(const b of libCache){if(localStorage.getItem('c_'+b.id)==='x'&&localStorage.getItem('k_'+b.id)!=='1')localStorage.removeItem('c_'+b.id);localStorage.removeItem('f_'+b.id)}localStorage.setItem('autoMig2','1')}
+  if(hasNative&&localStorage.getItem('autoMig2')!=='1'){for(const b of libCache){if(cvGet(b.id)==='x'&&localStorage.getItem('k_'+b.id)!=='1')cvDel(b.id);localStorage.removeItem('f_'+b.id)}localStorage.setItem('autoMig2','1')}
   const todo=libCache.filter(needCover);
   if(!todo.length)return;
   coverBusy=true;let k=0,done=0;const total=todo.length;toast('표지 찾는 중 0/'+total,true);
@@ -106,7 +115,7 @@ async function ensureCovers(){
       if(!u&&b.type==='comic'){const full=await dbGet(b.id);if(full)u=await comicCover(full.data)}
       if(!u&&b.type!=='comic'&&hasNative){nt=true;u=await nativeAuto(b);bumpStat(!!u)}
       if(!u&&b.type!=='comic'){const r=await autoCoverFor(b.title);u=r.url;err=r.err&&!u}
-      if(u){try{localStorage.setItem('c_'+b.id,u)}catch(_){}localStorage.removeItem('f_'+b.id)}
+      if(u){try{cvSet(b.id,u)}catch(_){}localStorage.removeItem('f_'+b.id)}
       else if(!err&&!nt)markFail(b.id,2);
       else markFail(b.id);
       softRender();
@@ -205,7 +214,7 @@ $('#file').onchange=async e=>{
   const worker=async()=>{while(idx<total){const it=items[idx++];
     try{const data=await it.get();const nid=Date.now()+Math.random().toString(36).slice(2,7);
       await dbAdd({id:nid,title:it.name.replace(/\.(epub|txt)$/i,'')||it.name,type:it.kind,pos:null,pct:0,bookmarks:[],shelf:target,added:Date.now()+idx},data);
-      if(it.kind==='comic'){try{const cu=await comicCover(data);if(cu)localStorage.setItem('c_'+nid,cu)}catch(_){}}}
+      if(it.kind==='comic'){try{const cu=await comicCover(data);if(cu)cvSet(nid,cu)}catch(_){}}}
     catch(err){console.error(err);fails.push(it.name+': '+((err&&err.message)||err))}
     done++;toast('책 등록 중 '+done+'/'+total,true);if(done%6===0)await renderLib()}};
   await Promise.all([worker(),worker(),worker()]);
@@ -420,7 +429,7 @@ $('#listBtn').onclick=async()=>{
   }
 };
 function gotoPos(p){if(cur.type==='comic'){comicSeek(p,true);return}if(cur.type==='epub')rend.display(p);else{const pi=Math.max(0,Math.min(paras.length-1,p|0));if(S.flow==='paginated'){curSec=secOf(pi);renderSec(pi)}else $('#txt').scrollTop=ps[pi].offsetTop-24}}
-renderLib();
+cvReady.then(()=>renderLib());
 
 // ---- update check ----
 async function hardReload(){try{for(const k of await caches.keys())await caches.delete(k)}catch(_){}
@@ -436,17 +445,17 @@ async function checkUpdate(){
 $('#updBtn').onclick=checkUpdate;$('#updBtn2').onclick=checkUpdate;
 
 // ---- Moon+ style: long-press menu, built-in covers, rebuild, size ----
-function setCover(id,u,lock){if(manualOn)setTimeout(nextManual,500);try{localStorage.setItem('c_'+id,u)}catch(_){uiAlert('저장 공간이 부족해요');return}if(lock)localStorage.setItem('k_'+id,'1');else localStorage.removeItem('k_'+id)}
+function setCover(id,u,lock){if(manualOn)setTimeout(nextManual,500);cvSet(id,u);if(lock)localStorage.setItem('k_'+id,'1');else localStorage.removeItem('k_'+id)}
 function buildStyles(){const box=$('#covStyles');box.innerHTML='';STY.forEach((s,i)=>{const d=document.createElement('div');d.className='sty';d.style.background=styBg(i);d.onclick=()=>{setCover(covBook.id,'style:'+i,true);$('#cov').hidden=true;renderLib(true)};box.appendChild(d)})}
-$('#covAuto').onclick=()=>{localStorage.removeItem('c_'+covBook.id);localStorage.removeItem('f_'+covBook.id);localStorage.removeItem('k_'+covBook.id);triedSess.delete(covBook.id);$('#cov').hidden=true;renderLib(true)};
-async function deleteBook(b){if(!(await uiConfirm('"'+b.title+'" 삭제할까요?')))return;await dbDel(b.id);['p_','b_','c_','o_','k_','f_'].forEach(k=>localStorage.removeItem(k+b.id));$('#act').hidden=true;renderLib()}
+$('#covAuto').onclick=()=>{cvDel(covBook.id);localStorage.removeItem('f_'+covBook.id);localStorage.removeItem('k_'+covBook.id);triedSess.delete(covBook.id);$('#cov').hidden=true;renderLib(true)};
+async function deleteBook(b){if(!(await uiConfirm('"'+b.title+'" 삭제할까요?')))return;await dbDel(b.id);['p_','b_','o_','k_','f_'].forEach(k=>localStorage.removeItem(k+b.id));cvDel(b.id);$('#act').hidden=true;renderLib()}
 function openAct(b){
   $('#actT').textContent=b.title;const body=$('#actBody');body.innerHTML='';
   const add=(label,fn,cls)=>{const x=document.createElement('button');x.textContent=label;if(cls)x.className=cls;x.onclick=fn;body.appendChild(x)};
   add('열기',()=>{$('#act').hidden=true;openBook(b.id)});
   add('표지 선택...',()=>openCov(b));
   if(window.Android&&Android.openCoverSearch)add('내장 표지 / 내 이미지로 선택...',()=>openCovSheet(b));
-  add('표지 자동으로 다시 만들기',()=>{localStorage.removeItem('c_'+b.id);localStorage.removeItem('f_'+b.id);localStorage.removeItem('k_'+b.id);triedSess.delete(b.id);$('#act').hidden=true;renderLib(true)});
+  add('표지 자동으로 다시 만들기',()=>{cvDel(b.id);localStorage.removeItem('f_'+b.id);localStorage.removeItem('k_'+b.id);triedSess.delete(b.id);$('#act').hidden=true;renderLib(true)});
   add('이름 바꾸기',async()=>{const t=await uiPrompt('책 이름',b.title);if(t&&t.trim()){const m=libCache.find(x=>x.id===b.id);if(m){m.title=t.trim();await dbPut(m)}$('#act').hidden=true;renderLib(true)}});
   add('다른 책장으로 이동...',()=>pickShelf(b));
   add('삭제',()=>deleteBook(b),'danger');
@@ -462,7 +471,7 @@ function bindBook(el,b){
   el.onclick=()=>{if(el._lp)return;openBook(b.id)};
 }
 $('#rebuildBtn').onclick=async()=>{if(!(await uiConfirm('직접 고른 표지를 제외한 모든 표지를 다시 만들까요?')))return;
-  for(const b of libCache){if(localStorage.getItem('k_'+b.id)!=='1')localStorage.removeItem('c_'+b.id);localStorage.removeItem('f_'+b.id)}triedSess.clear();toast('표지를 다시 만드는 중...');renderLib(true)};
+  for(const b of libCache){if(localStorage.getItem('k_'+b.id)!=='1')cvDel(b.id);localStorage.removeItem('f_'+b.id)}triedSess.clear();toast('표지를 다시 만드는 중...');renderLib(true)};
 $('#sizeBtn').onclick=()=>{S.coverSize=S.coverSize==='M'?'L':S.coverSize==='L'?'S':'M';saveS();renderLib(true)};
 
 // ---- Moon+ style: pick cover from Google Images (via clipboard / URL) ----
