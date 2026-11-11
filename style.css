@@ -133,3 +133,7 @@ h1{margin:0;font-size:22px;text-shadow:0 2px 4px #0008}
 #cmPage.fit-cover.two:not(.zoom) img,#cmPage.fit-stretch.two:not(.zoom) img{width:50%}
 #cmPage.fit-cover:not(.zoom) img{object-fit:cover}
 #cmPage.fit-stretch:not(.zoom) img{object-fit:fill}
+
+#cmPage.two:not(.zoom):not(.fit-cover):not(.fit-stretch):not(.fit-w):not(.fit-h):not(.fit-o){gap:0;align-items:center;justify-content:center}
+#cmPage.two:not(.fit-cover):not(.fit-stretch) img{margin:0}
+#cmPage.two:not(.zoom):not(.fit-cover):not(.fit-stretch) img:first-child{box-shadow:6px 0 14px #000a}
