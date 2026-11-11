@@ -17,9 +17,9 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=31;
+const APP_NUM=32;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr'},JSON.parse(localStorage.getItem('rs')||'{}'));
-let resetScrollOnce=false;
+let resetScrollOnce=false,pendingScrollY=null,libY=0;
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
@@ -140,7 +140,7 @@ async function renderLib(useCache){
   const books=libCache.filter(b=>((b.shelf||0)%4)===curShelf).map(b=>{const p=getP(b.id);return Object.assign({},b,{pct:p?p.pct||0:0,opened:+localStorage.getItem('o_'+b.id)||0})});
   books.sort((a,b)=>sortBy==='title'?a.title.localeCompare(b.title,'ko'):sortBy==='pct'?b.pct-a.pct:sortBy==='added'?b.added-a.added:(b.opened-a.opened)||(b.added-a.added));
   $('#sort').value=sortBy;$('#viewBtn').textContent=view==='shelf'?'목록':'책꽂이';$('#editBtn').textContent=editMode?'완료':'편집';$('#autoBtn').hidden=!editMode;$('#sizeBtn').hidden=!editMode;$('#rebuildBtn').hidden=!editMode;$('#sizeBtn').textContent='표지 크기: '+({S:'작게',M:'보통',L:'크게'})[S.coverSize];$('#updBtn2').hidden=!editMode;$('#autoBtn').textContent='자동표지: '+(autoOn()?'켬':'끔');
-  $('#empty').hidden=books.length>0;renderNeedBar(books);const g=$('#grid');const se=document.scrollingElement||document.documentElement;const keepY=resetScrollOnce?0:se.scrollTop;resetScrollOnce=false;g.style.minHeight=g.offsetHeight+'px';g.innerHTML='';g.className=view;
+  $('#empty').hidden=books.length>0;renderNeedBar(books);const g=$('#grid');const se=document.scrollingElement||document.documentElement;const keepY=resetScrollOnce?0:(pendingScrollY!=null?pendingScrollY:se.scrollTop);resetScrollOnce=false;pendingScrollY=null;g.style.minHeight=g.offsetHeight+'px';g.innerHTML='';g.className=view;
   const tagOf=b=>{const t=document.createElement('div');t.className='tag'+(b.pct<=0&&!b.opened?' new':'');t.textContent=b.pct<=0&&!b.opened?'NEW':Math.round(b.pct*100)+'%';return t};
   const covBtn=b=>{const x=document.createElement('button');x.className='cb';x.textContent=view==='shelf'?'표':'표지';x.onclick=e=>{e.stopPropagation();openCov(b)};return x};
   const delBtn=b=>{const x=document.createElement('button');x.className='del';x.textContent='×';x.onclick=e=>{e.stopPropagation();deleteBook(b)};return x};
@@ -231,7 +231,7 @@ function decodeText(buf){
 async function openBook(id){
   cur=await dbGet(id);localStorage.setItem('o_'+id,Date.now());const pr=getP(id);if(pr){cur.pos=pr.pos;cur.pct=pr.pct||0}else if(cur.type==='txt'){cur.pos=0;cur.pct=0}
   try{const bm=JSON.parse(localStorage.getItem('b_'+id)||'null');if(bm)cur.bookmarks=bm}catch(_){}
-  $('#lib').hidden=true;$('#reader').hidden=false;$('#reader').classList.remove('hide');
+  libY=(document.scrollingElement||document.documentElement).scrollTop;$('#lib').hidden=true;$('#reader').hidden=false;$('#reader').classList.remove('hide');
   $('#title').textContent=cur.title;locReady=false;
   $('#comic').hidden=true;$('#stage').classList.remove('noz');$('#zoomBtn').hidden=true;
   if(cur.type==='epub')await openEpub();else if(cur.type==='comic')await openComic();else openTxt();
@@ -377,7 +377,7 @@ $('#seek').onchange=e=>{
   if(cur.type==='epub'){if(locReady)rend.display(book.locations.cfiFromPercentage(f))}
   else txtSeek(f);
 };
-$('#back').onclick=async()=>{setP();if(rend){rend.destroy();book.destroy();rend=book=null}cmCleanup();$('#comic').hidden=true;$('#stage').classList.remove('noz');cur=null;$('#reader').hidden=true;$('#lib').hidden=false;renderLib()};
+$('#back').onclick=async()=>{setP();if(rend){rend.destroy();book.destroy();rend=book=null}cmCleanup();$('#comic').hidden=true;$('#stage').classList.remove('noz');cur=null;$('#reader').hidden=true;$('#lib').hidden=false;pendingScrollY=libY;renderLib(true)};
 // panels
 function syncUI(){
   $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;$('#cmMode').value=S.comicMode;$('#cmDir').value=S.comicDir;$('#space').value=S.space;$('#joinSel').value=S.join;$('#ver').textContent='v'+APP_NUM;showPct();
