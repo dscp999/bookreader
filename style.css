@@ -119,3 +119,12 @@ h1{margin:0;font-size:22px;text-shadow:0 2px 4px #0008}
 .dupb{position:absolute;left:-2px;bottom:6px;background:#d64545;color:#fff;font-size:11px;font-weight:700;padding:1px 6px;border-radius:0 8px 8px 0}
 .dgh{margin:10px 0 2px;font-weight:700;opacity:.9}
 #act button.dgi{font-size:14px;padding:10px 8px}
+
+#cmPage img{box-shadow:0 0 14px #000a;margin:auto}
+#cmPage.fit-w:not(.zoom){align-items:flex-start;justify-content:center;overflow-y:auto}
+#cmPage.fit-w:not(.zoom) img{width:100%;max-width:100%;max-height:none;height:auto;flex:none}
+#cmPage.fit-w.two:not(.zoom) img{width:50%;max-width:50%}
+#cmPage.fit-h:not(.zoom){align-items:stretch;overflow-x:auto}
+#cmPage.fit-h:not(.zoom) img{height:100%;width:auto;max-width:none;max-height:none;flex:none}
+#cmPage.fit-o:not(.zoom){overflow:auto}
+#cmPage.fit-o:not(.zoom) img{width:auto;height:auto;max-width:none;max-height:none;flex:none}

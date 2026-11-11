@@ -26,8 +26,8 @@ const cvReady=(async()=>{try{await dbp;const all=await tx('covers','readonly',s=
 }catch(e){}})();
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=37;
-const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr'},JSON.parse(localStorage.getItem('rs')||'{}'));
+const APP_NUM=38;
+const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr',comicFit:'contain'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let resetScrollOnce=false,pendingScrollY=null,libY=0;
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
@@ -407,7 +407,7 @@ $('#seek').onchange=e=>{
 $('#back').onclick=async()=>{setP();if(rend){rend.destroy();book.destroy();rend=book=null}cmCleanup();$('#comic').hidden=true;$('#stage').classList.remove('noz');cur=null;$('#reader').hidden=true;$('#lib').hidden=false;pendingScrollY=libY;renderLib(true)};
 // panels
 function syncUI(){
-  $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;$('#cmMode').value=S.comicMode;$('#cmDir').value=S.comicDir;$('#space').value=S.space;$('#joinSel').value=S.join;$('#ver').textContent='v'+APP_NUM;showPct();
+  $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;$('#cmMode').value=S.comicMode;$('#cmDir').value=S.comicDir;$('#cmFit').value=S.comicFit||'contain';$('#space').value=S.space;$('#joinSel').value=S.join;$('#ver').textContent='v'+APP_NUM;showPct();
 }
 function relayout(){applyTheme();if(!cur)return;if(cur.type==='comic'){cmRelayout();return}if(cur.type==='epub'){if((epubFFApplied!==null&&(S.ff==='book')!==(epubFFApplied==='book'))||(epubSpApplied!==null&&epubSpApplied!==S.space)){try{rend.destroy();book.destroy()}catch(_){}rend=book=null;epubFFApplied=epubSpApplied=null;openEpub();return}applyEpubStyle()}else{if(prepSig()!==cur.sig){const f=cur.pct||0;loadParas();layoutTxt(paraOf(f))}else layoutTxt(cur.pos||0)}}
 $('#setBtn').onclick=()=>{$('#panel').hidden=false;$('#list').hidden=true};
@@ -760,7 +760,7 @@ async function buildPage(idx){if(!cm)return;cm.groups=cmGroups();cm.group=Math.m
 async function showGroup(){
   const z=cm;const box=$('#cmPage');const g=z.groups[z.group];const tk=++z.tok;
   const urls=await Promise.all(g.map(cmUrl));if(cm!==z||tk!==z.tok)return;
-  box.className=(S.comicDir==='rtl'?'rtl ':'')+(g.length>1?'two':'')+(z.zoom?' zoom':'');box.innerHTML='';box.scrollTo(0,0);
+  box.className=(S.comicDir==='rtl'?'rtl ':'')+(g.length>1?'two':'')+' fit-'+(S.comicFit||'contain')+(z.zoom?' zoom':'');box.innerHTML='';box.scrollTo(0,0);
   urls.forEach(u=>{const im=new Image();im.src=u;box.appendChild(im)});
   const first=g[0];z.idx=first;cur.pos=first;cur.pct=z.names.length>1?first/(z.names.length-1):1;showPct();setP();
   cmRelease(i=>Math.abs(i-first)<=3);
@@ -782,6 +782,7 @@ $('#zoomBtn').onclick=()=>{if(!cm||cm.mode!=='page')return;cm.zoom=!cm.zoom;$('#
 $('#comic').addEventListener('click',()=>{if($('#stage').classList.contains('noz'))$('#reader').classList.toggle('hide')});
 $('#txt').addEventListener('click',()=>{if(cur&&cur.type==='txt'&&$('#stage').classList.contains('noz'))$('#reader').classList.toggle('hide')});
 $('#cmMode').onchange=e=>{S.comicMode=e.target.value;saveS();relayout()};
+$('#cmFit').onchange=e=>{S.comicFit=e.target.value;saveS();relayout()};
 $('#cmDir').onchange=e=>{S.comicDir=e.target.value;saveS();relayout()};
 
 // ---- books the automatic search could not cover: choose manually, one by one ----
