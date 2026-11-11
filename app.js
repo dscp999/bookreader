@@ -24,9 +24,10 @@ const cvReady=(async()=>{try{await dbp;const all=await tx('covers','readonly',s=
   const mig=Object.keys(localStorage).filter(k=>k.startsWith('c_'));
   for(const k of mig){const id=k.slice(2),v=localStorage.getItem(k);if(v!=null){if(!CV.has(id)){CV.set(id,v);await tx('covers','readwrite',s=>s.put({id,data:v})).catch(()=>{})}localStorage.removeItem(k)}}
 }catch(e){}})();
-function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
+function toast(msg,sticky){const rd=document.getElementById('reader');if(rd&&!rd.hidden){const t0=document.getElementById('toast');if(t0)t0.style.display='none';return}
+  let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=40;
+const APP_NUM=41;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr',comicFit:'contain'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let resetScrollOnce=false,pendingScrollY=null,libY=0;
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
@@ -754,9 +755,12 @@ $('#cmWeb').addEventListener('scroll',()=>{
     cm.idx=lo;cur.pos=lo;cur.pct=cm.names.length>1?lo/(cm.names.length-1):1;showPct();setP()},150);
 });
 // --- page mode (manga) ---
-const cmTwo=()=>{const st=$('#stage');return S.spread==='2'||(S.spread==='auto'&&st.clientWidth>=800&&st.clientWidth>st.clientHeight)};
+const cmTwo=()=>{const st=$('#stage');return S.spread==='2'||(S.spread==='auto'&&st.clientWidth>=800&&st.clientWidth>st.clientHeight&&!(cm&&cm.land))};
+async function cmSampleLand(z){if(z.land!==undefined)return;const n=z.names.length;const pick=[...new Set([0,1,2,Math.floor(n/2),Math.max(0,n-2),n-1])].filter(i=>i>=0&&i<n);let wide=0,tot=0;
+  for(const i of pick){const u=await cmUrl(i);if(!u)continue;await new Promise(r=>{const im=new Image();im.onload=()=>{if(im.naturalWidth){tot++;if(im.naturalWidth>im.naturalHeight*1.05)wide++}r()};im.onerror=r;im.src=u})}
+  z.land=tot>0&&wide/tot>=0.5}
 function cmGroups(){const n=cm.names.length,g=[];if(!cmTwo()){for(let i=0;i<n;i++)g.push([i]);return g}g.push([0]);for(let i=1;i<n;i+=2)g.push(i+1<n?[i,i+1]:[i]);return g}
-async function buildPage(idx){if(!cm)return;cm.groups=cmGroups();cm.group=Math.max(0,cm.groups.findIndex(g=>g.includes(idx)));await showGroup()}
+async function buildPage(idx){if(!cm)return;await cmSampleLand(cm);cm.groups=cmGroups();cm.group=Math.max(0,cm.groups.findIndex(g=>g.includes(idx)));await showGroup()}
 async function showGroup(){
   const z=cm;const box=$('#cmPage');const g=z.groups[z.group];const tk=++z.tok;
   const urls=await Promise.all(g.map(cmUrl));if(cm!==z||tk!==z.tok)return;
