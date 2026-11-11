@@ -26,7 +26,7 @@ const cvReady=(async()=>{try{await dbp;const all=await tx('covers','readonly',s=
 }catch(e){}})();
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=36;
+const APP_NUM=37;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let resetScrollOnce=false,pendingScrollY=null,libY=0;
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
@@ -209,7 +209,7 @@ async function importFiles(all,fromDir){
     else items.push({name:f.name,kind:k,rel:relOf(f),size:f.size,get:()=>f.arrayBuffer()})}
   if(fromDir&&imgs.length){const groups={};for(const im of imgs){const rp=relOf(im);const d=rp.includes('/')?rp.slice(0,rp.lastIndexOf('/')):'';(groups[d]=groups[d]||[]).push(im)}
     for(const d of Object.keys(groups)){const g=groups[d];if(g.length<2){skipped+=g.length;continue}g.sort((p,q)=>p.name.localeCompare(q.name,'ko',{numeric:true}));const nm=(d.split('/').pop()||'만화');
-      items.push({name:nm,kind:'comic',rel:d+'/*',size:g.length,get:async()=>{const z=new JSZip();for(const im of g)z.file(im.name,im,{compression:'STORE',binary:true});return await z.generateAsync({type:'arraybuffer',compression:'STORE'})}})}}
+      items.push({name:nm,kind:'comic',rel:d+'/*',size:g.length,get:async()=>{const z=new JSZip();for(const im of g)z.file(im.name,im.arrayBuffer&&!(im instanceof Blob)?await im.arrayBuffer():im,{compression:'STORE',binary:true});return await z.generateAsync({type:'arraybuffer',compression:'STORE'})}})}}
   else if(imgs.length){const stem=(imgs[0].name.replace(IMG_RE,'').replace(/[\s_\-.]*\d+$/,'')||'만화');
     const title=await uiPrompt('이미지 '+imgs.length+'장을 한 권의 만화로 등록해요.\n만화 제목',stem);
     if(title&&title.trim()){imgs.sort((p,q)=>p.name.localeCompare(q.name,'ko',{numeric:true}));toast('이미지 묶는 중...',true);const z=new JSZip();for(const im of imgs)z.file(im.name,im,{compression:'STORE',binary:true});
@@ -234,6 +234,8 @@ async function importFiles(all,fromDir){
 $('#file').onchange=e=>{const a=[...e.target.files];e.target.value='';importFiles(a,false)};
 $('#dirFile').onchange=e=>{const a=[...e.target.files];e.target.value='';if(!a.length){uiAlert('이 기기에서는 폴더 선택이 지원되지 않을 수 있어요.\n안 되면 폴더를 ZIP으로 묶어서 "+ 책 추가"로 넣어 주세요.');return}importFiles(a,true)};
 async function pickDirectory(){
+  if(window.Android&&typeof Android.pickFolder==='function'){toast('폴더를 고르세요...',false);Android.pickFolder();return}
+  if(/Android/i.test(navigator.userAgent)&&!window.showDirectoryPicker){if(await uiConfirm('이 앱(크롬)에서는 폰의 폴더를 직접 고를 수 없어요.\n\n네이티브 앱을 설치하면 SD카드 폴더를 통째로 등록할 수 있어요. 지금 받을까요?\n(받은 뒤 APK를 열어 설치하세요)')){location.href='https://github.com/dscp999/bookreader/releases/download/native-latest/bookreader-native.apk'}return}
   if(window.showDirectoryPicker){try{const root=await showDirectoryPicker();const out=[];
     const walk=async(h,p)=>{for await(const [n,e] of h.entries()){if(e.kind==='directory')await walk(e,p+n+'/');else{const f=await e.getFile();f._rel=p+n;out.push(f)}}};await walk(root,root.name+'/');importFiles(out,true);return}catch(e){if(e&&e.name==='AbortError')return}}
   $('#dirFile').click();
@@ -811,3 +813,13 @@ function openDups(){const info=computeDups();const names=shelfNames();const body
       x.onclick=async()=>{if(!(await uiConfirm('"'+b.title+'" ('+names[(b.shelf||0)%4]+')을 삭제할까요?\n\n※ 읽던 위치와 북마크도 같이 지워져요.')))return;
         await dbDel(b.id);['p_','b_','o_','k_','f_'].forEach(k=>localStorage.removeItem(k+b.id));cvDel(b.id);libCache=libCache.filter(y=>y.id!==b.id);renderLib(true);openDups()};body.appendChild(x)}}
   const c=document.createElement('button');c.textContent='닫기';c.onclick=()=>$('#act').hidden=true;body.appendChild(c);$('#act').hidden=false}
+
+// ---- native (Android) folder import: SAF tree scanned by the app, files streamed on demand ----
+window.onNativeFolder=json=>{
+  let list=[];try{list=JSON.parse(json)}catch(_){}
+  if(!list.length){uiAlert('폴더에서 EPUB/TXT/ZIP/이미지 파일을 찾지 못했어요.\n(폴더 선택을 취소했거나 접근 권한이 없을 수 있어요)');return}
+  const files=list.map(o=>{const url=location.origin+'/__saf/'+o.i;
+    return {name:o.name,size:o.size,type:o.mime||'',_rel:o.rel,arrayBuffer:async()=>{const r=await fetch(url);if(!r.ok)throw new Error('파일을 읽지 못했어요 ('+o.name+')');return await r.arrayBuffer()}}});
+  toast('폴더에서 '+files.length+'개 파일을 찾았어요',false);
+  importFiles(files,true);
+};
