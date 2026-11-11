@@ -109,3 +109,7 @@ h1{margin:0;font-size:22px;text-shadow:0 2px 4px #0008}
 #cmPage.zoom{align-items:flex-start;justify-content:flex-start}
 #cmPage.zoom img{max-width:none;max-height:none;width:220%;flex:none}
 #stage.noz .zone{display:none}
+
+#needBar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 12px 8px;padding:8px 10px;border-radius:10px;background:var(--card,#0004);font-size:13px}
+#lib #needBar button{background:var(--accent,#c98a3e);color:var(--accentfg,#2a1a0f);border:0;padding:6px 10px;border-radius:8px;font-size:13px;font-weight:700;white-space:nowrap}
+#lib .bk .nb{position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:var(--accent,#c98a3e);color:var(--accentfg,#2a1a0f);border:0;border-radius:10px;padding:2px 8px;font-size:11px;font-weight:700;z-index:2;white-space:nowrap}
