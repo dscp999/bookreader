@@ -97,3 +97,15 @@ h1{margin:0;font-size:22px;text-shadow:0 2px 4px #0008}
 #act .swgrid button.sw{width:calc(33.3% - 7px);padding:8px 4px;border:2px solid transparent;border-radius:10px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:13px}
 #act .swgrid button.sw.on{border-color:#c98a3e}
 .sw i{display:block;width:100%;height:44px;border-radius:6px}
+
+#comic{position:absolute;inset:0;background:var(--bg);overflow:hidden}
+#cmWeb{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
+#cmWeb .pg{width:100%;max-width:900px;margin:0 auto;background:#8881}
+#cmWeb .pg img{display:block;width:100%;height:auto}
+#cmPage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;overflow:auto}
+#cmPage img{max-width:100%;max-height:100%;object-fit:contain;display:block;flex:0 1 auto}
+#cmPage.rtl{flex-direction:row-reverse}
+#cmPage.two img{max-width:50%}
+#cmPage.zoom{align-items:flex-start;justify-content:flex-start}
+#cmPage.zoom img{max-width:none;max-height:none;width:220%;flex:none}
+#stage.noz .zone{display:none}

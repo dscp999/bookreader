@@ -17,8 +17,8 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=26;
-const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto'},JSON.parse(localStorage.getItem('rs')||'{}'));
+const APP_NUM=27;
+const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
 function applyTheme(){document.body.className='t-'+S.theme}
@@ -93,8 +93,9 @@ async function ensureCovers(){
     try{let u=null,err=false,nt=false;
       if(b.type==='epub'){const full=await dbGet(b.id);if(full){const info=await epubInfo(full.data);u=info.url;
         if(info.title&&info.title!==b.title){const m=libCache.find(x=>x.id===b.id);if(m){m.title=info.title;await dbPut(m)}}}}
-      if(!u&&hasNative){nt=true;u=await nativeAuto(b);bumpStat(!!u)}
-      if(!u){const r=await autoCoverFor(b.title);u=r.url;err=r.err&&!u}
+      if(!u&&b.type==='comic'){const full=await dbGet(b.id);if(full)u=await comicCover(full.data)}
+      if(!u&&b.type!=='comic'&&hasNative){nt=true;u=await nativeAuto(b);bumpStat(!!u)}
+      if(!u&&b.type!=='comic'){const r=await autoCoverFor(b.title);u=r.url;err=r.err&&!u}
       if(u){try{localStorage.setItem('c_'+b.id,u)}catch(_){}}
       else if(!err&&!nt)localStorage.setItem('c_'+b.id,'x');
       softRender();
@@ -144,7 +145,7 @@ async function renderLib(useCache){
     for(const b of books){
       const d=document.createElement('div');d.className='li';d.appendChild(coverEl(b));
       const inf=document.createElement('div');inf.className='info';inf.innerHTML='<b></b><small></small><div class="bar2"><i></i></div>';
-      inf.querySelector('b').textContent=b.title;inf.querySelector('small').textContent=b.type.toUpperCase()+' · '+Math.round(b.pct*100)+'%'+(b.opened?' · '+new Date(b.opened).toLocaleDateString('ko-KR'):' · 새 책');
+      inf.querySelector('b').textContent=b.title;inf.querySelector('small').textContent=({epub:'EPUB',txt:'TXT',comic:'만화'})[b.type]+' · '+Math.round(b.pct*100)+'%'+(b.opened?' · '+new Date(b.opened).toLocaleDateString('ko-KR'):' · 새 책');
       inf.querySelector('i').style.width=Math.round(b.pct*100)+'%';d.appendChild(inf);if(editMode){d.appendChild(covBtn(b));d.appendChild(delBtn(b))}
       bindBook(d,b);g.appendChild(d)}
   }
@@ -153,13 +154,15 @@ async function renderLib(useCache){
 $('#sort').onchange=e=>{sortBy=e.target.value;localStorage.setItem('sort',sortBy);renderLib(true)};
 $('#viewBtn').onclick=()=>{view=view==='shelf'?'list':'shelf';localStorage.setItem('view',view);renderLib(true)};
 $('#editBtn').onclick=()=>{editMode=!editMode;renderLib(true)};
-let _rz;window.addEventListener('resize',()=>{clearTimeout(_rz);_rz=setTimeout(()=>{if(!$('#lib').hidden)renderLib(true)},200)});
+let _rz;window.addEventListener('resize',()=>{clearTimeout(_rz);_rz=setTimeout(()=>{if(!$('#lib').hidden)renderLib(true);else if(cur&&cur.type==='comic'&&cm&&cm.mode==='page')buildPage(cm.idx)},200)});
 const zipName=b=>{try{return new TextDecoder('utf-8',{fatal:true}).decode(b)}catch(_){return new TextDecoder('euc-kr').decode(b)}};
 async function expandZip(f,notes){
+  if(/\.cbz$/i.test(f.name))return [{name:f.name.replace(/\.cbz$/i,''),kind:'comic',get:()=>f.arrayBuffer()}];
   const z=await JSZip.loadAsync(await f.arrayBuffer(),{decodeFileName:zipName});
   const ents=Object.values(z.files).filter(x=>!x.dir&&!/(^|\/)(__MACOSX|\.)/.test(x.name)&&/\.(epub|txt)$/i.test(x.name));
   ents.sort((p,q)=>p.name.localeCompare(q.name,'ko',{numeric:true}));
   const base=n=>n.split('/').pop();const out=[];
+  if(!ents.length&&Object.values(z.files).some(x=>!x.dir&&!/(^|\/)(__MACOSX|\.)/.test(x.name)&&IMG_RE.test(x.name)))return [{name:f.name.replace(/\.zip$/i,''),kind:'comic',get:()=>f.arrayBuffer()}];
   const epubs=ents.filter(x=>/\.epub$/i.test(x.name)),txts=ents.filter(x=>/\.txt$/i.test(x.name));
   for(const x of epubs)out.push({name:base(x.name),kind:'epub',get:()=>x.async('arraybuffer')});
   if(txts.length>1){
@@ -167,24 +170,30 @@ async function expandZip(f,notes){
     if(merge){out.push({name:f.name.replace(/\.zip$/i,'')+'.txt',kind:'txt',get:async()=>{let s='';for(let i=0;i<txts.length;i++){const t=decodeText(await txts[i].async('arraybuffer')).replace(/\r\n?/g,'\n').trim();s+=(i?'\n\n':'')+'■ '+base(txts[i].name).replace(/\.txt$/i,'')+'\n\n'+t}return new TextEncoder().encode(s).buffer}});return out}
   }
   for(const x of txts)out.push({name:base(x.name),kind:'txt',get:()=>x.async('arraybuffer')});
-  if(!out.length)notes.push(f.name+': 안에 EPUB/TXT가 없어요 (이미지 ZIP 등은 지원하지 않아요)');
+  if(!out.length)notes.push(f.name+': 안에 EPUB/TXT가 없어요 ');
   return out;
 }
 $('#file').onchange=async e=>{
   const all=[...e.target.files];e.target.value='';if(!all.length)return;
-  const kindOf=f=>(/\.epub$/i.test(f.name)||f.type==='application/epub+zip')?'epub':((/\.txt$/i.test(f.name)||f.type==='text/plain')?'txt':((/\.zip$/i.test(f.name)||/zip/i.test(f.type))?'zip':null));
-  const notes=[],items=[];let skipped=0;
+  const kindOf=f=>{const n=f.name,t=f.type||'';if(/\.epub$/i.test(n)||t==='application/epub+zip')return 'epub';if(/\.txt$/i.test(n)||t==='text/plain')return 'txt';if(/\.(zip|cbz)$/i.test(n)||/zip/i.test(t))return 'zip';if(IMG_RE.test(n)||/^image\//.test(t))return 'img';return null};
+  const notes=[],items=[],imgs=[];let skipped=0;
   for(const f of all){const k=kindOf(f);
     if(!k){skipped++;continue}
     if(k==='zip'){toast('ZIP 여는 중: '+f.name,true);try{items.push(...await expandZip(f,notes))}catch(err){notes.push(f.name+': ZIP을 열 수 없어요 ('+((err&&err.message)||err)+')')}}
+    else if(k==='img')imgs.push(f);
     else items.push({name:f.name,kind:k,get:()=>f.arrayBuffer()})}
+  if(imgs.length){const stem=(imgs[0].name.replace(IMG_RE,'').replace(/[\s_\-.]*\d+$/,'')||'만화');
+    const title=await uiPrompt('이미지 '+imgs.length+'장을 한 권의 만화로 등록해요.\n만화 제목',stem);
+    if(title&&title.trim()){imgs.sort((p,q)=>p.name.localeCompare(q.name,'ko',{numeric:true}));toast('이미지 묶는 중...',true);const z=new JSZip();for(const im of imgs)z.file(im.name,im,{compression:'STORE',binary:true});
+      const zbuf=await z.generateAsync({type:'arraybuffer',compression:'STORE'});items.push({name:title.trim(),kind:'comic',get:async()=>zbuf})}}
   if(!items.length){const tt=document.getElementById('toast');if(tt)tt.style.display='none';uiAlert(notes.length?notes.slice(0,3).join('\n'):'선택한 파일 '+all.length+'개가 EPUB/TXT/ZIP 형식이 아니라서 등록하지 않았어요.\n(예: '+all[0].name+')');return}
   if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
   const target=curShelf,tname=shelfNames()[target];const fails=[];
   const total=items.length;let idx=0,done=0;toast('책 등록 중 0/'+total+' → '+tname,true);
   const worker=async()=>{while(idx<total){const it=items[idx++];
-    try{const data=await it.get();
-      await dbAdd({id:Date.now()+Math.random().toString(36).slice(2,7),title:it.name.replace(/\.(epub|txt)$/i,'')||it.name,type:it.kind,pos:null,pct:0,bookmarks:[],shelf:target,added:Date.now()+idx},data)}
+    try{const data=await it.get();const nid=Date.now()+Math.random().toString(36).slice(2,7);
+      await dbAdd({id:nid,title:it.name.replace(/\.(epub|txt)$/i,'')||it.name,type:it.kind,pos:null,pct:0,bookmarks:[],shelf:target,added:Date.now()+idx},data);
+      if(it.kind==='comic'){try{const cu=await comicCover(data);if(cu)localStorage.setItem('c_'+nid,cu)}catch(_){}}}
     catch(err){console.error(err);fails.push(it.name+': '+((err&&err.message)||err))}
     done++;toast('책 등록 중 '+done+'/'+total,true);if(done%6===0)await renderLib()}};
   await Promise.all([worker(),worker(),worker()]);
@@ -212,7 +221,8 @@ async function openBook(id){
   try{const bm=JSON.parse(localStorage.getItem('b_'+id)||'null');if(bm)cur.bookmarks=bm}catch(_){}
   $('#lib').hidden=true;$('#reader').hidden=false;$('#reader').classList.remove('hide');
   $('#title').textContent=cur.title;locReady=false;
-  if(cur.type==='epub')await openEpub();else openTxt();
+  $('#comic').hidden=true;$('#stage').classList.remove('noz');$('#zoomBtn').hidden=true;
+  if(cur.type==='epub')await openEpub();else if(cur.type==='comic')await openComic();else openTxt();
   syncUI();
 }
 async function openEpub(){
@@ -228,7 +238,7 @@ async function openEpub(){
   });
   rend.hooks.content.register(contents=>{if(S.space!=='off')compactDoc(contents.document)});
   rend.on('keyup',keyNav);
-  rend.on('click',()=>{});
+  rend.on('click',()=>{if($('#stage').classList.contains('noz'))$('#reader').classList.toggle('hide')});
   await rend.display(cur.pos||undefined);
   book.ready.then(()=>book.locations.generate(1200)).then(()=>{locReady=true;if(cur&&rend){const l=rend.currentLocation();if(l&&l.start){cur.pct=book.locations.percentageFromCfi(l.start.cfi);showPct()}}}).catch(()=>{});
 }
@@ -241,7 +251,7 @@ function compactDoc(d){try{
 }catch(e){}}
 function applyEpubStyle(){
   if(!rend)return;const cs=getComputedStyle(document.body);
-  rend.flow(S.flow);rend.spread(S.spread==='2'?'both':S.spread==='1'?'none':'auto',800);
+  rend.flow(S.flow);$('#stage').classList.toggle('noz',S.flow==='scrolled');rend.spread(S.spread==='2'?'both':S.spread==='1'?'none':'auto',800);
   const bg=cs.getPropertyValue('--bg'),fg=cs.getPropertyValue('--fg');
   const ffRule=S.ff==='book'?{}:{'font-family':FF[S.ff]+' !important'};
   const rules={body:Object.assign({background:bg+' !important',color:fg+' !important','line-height':S.lh+' !important',padding:'0 '+S.mg+'px !important'},ffRule),'p,div,span,li':{color:fg+' !important','line-height':S.lh+' !important'},a:{color:'#6aa9ff !important'}};
@@ -290,7 +300,7 @@ function openTxt(){
 }
 function layoutTxt(pi,last){
   const t=$('#txt'),i=$('#txtin'),cs=getComputedStyle(document.body);
-  const paged=S.flow==='paginated';t.classList.toggle('scroll',!paged);i.classList.toggle('sc',!paged);i.classList.remove('sp-off','sp-n','sp-s');i.classList.add('sp-'+S.space);
+  const paged=S.flow==='paginated';$('#stage').classList.toggle('noz',!paged);t.classList.toggle('scroll',!paged);i.classList.toggle('sc',!paged);i.classList.remove('sp-off','sp-n','sp-s');i.classList.add('sp-'+S.space);
   const padH=S.mg+8,padV=24;t.style.padding=padV+'px '+padH+'px';t.style.background=cs.getPropertyValue('--bg');
   const base='font-size:'+S.fs+'px;line-height:'+S.lh+';font-family:'+FF[S.ff]+';color:'+cs.getPropertyValue('--fg')+';';
   pi=Math.max(0,Math.min(paras.length-1,pi|0));
@@ -335,6 +345,7 @@ function txtSeek(f){const pi=paraOf(f);if(S.flow==='paginated'){curSec=secOf(pi)
 // navigation
 function move(d){
   if(!cur)return;
+  if(cur.type==='comic'){comicMove(d);return}
   if(cur.type==='epub'){d>0?rend.next():rend.prev()}
   else txtMove(d);
 }
@@ -346,19 +357,20 @@ document.querySelectorAll('.zone').forEach(z=>z.addEventListener('click',()=>{
 }));
 // swipe
 let sx=null;$('#stage').addEventListener('touchstart',e=>{sx=e.touches[0].clientX},{passive:true});
-$('#stage').addEventListener('touchend',e=>{if(sx==null)return;const dx=e.changedTouches[0].clientX-sx;sx=null;if(Math.abs(dx)>60&&(cur.type==='epub'?S.flow==='paginated':S.flow==='paginated')){move(dx<0?1:-1)}});
+$('#stage').addEventListener('touchend',e=>{if(sx==null)return;const dx=e.changedTouches[0].clientX-sx;sx=null;if(Math.abs(dx)>60&&(cur.type==='comic'?(cm&&cm.mode==='page'&&!cm.zoom):S.flow==='paginated')){move(dx<0?1:-1)}});
 function showPct(){if(!cur)return;const p=Math.round((cur.pct||0)*1000);$('#seek').value=p;$('#pct').textContent=(p/10).toFixed(1)+'%'}
 $('#seek').onchange=e=>{
   const f=e.target.value/1000;
+  if(cur.type==='comic'){comicSeek(f);return}
   if(cur.type==='epub'){if(locReady)rend.display(book.locations.cfiFromPercentage(f))}
   else txtSeek(f);
 };
-$('#back').onclick=async()=>{setP();if(rend){rend.destroy();book.destroy();rend=book=null}cur=null;$('#reader').hidden=true;$('#lib').hidden=false;renderLib()};
+$('#back').onclick=async()=>{setP();if(rend){rend.destroy();book.destroy();rend=book=null}cmCleanup();$('#comic').hidden=true;$('#stage').classList.remove('noz');cur=null;$('#reader').hidden=true;$('#lib').hidden=false;renderLib()};
 // panels
 function syncUI(){
-  $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;$('#space').value=S.space;$('#joinSel').value=S.join;$('#ver').textContent='v'+APP_NUM;showPct();
+  $('#fs').value=S.fs;$('#lh').value=S.lh;$('#mg').value=S.mg;$('#ff').value=S.ff;$('#flow').value=S.flow;$('#spread').value=S.spread;$('#cmMode').value=S.comicMode;$('#cmDir').value=S.comicDir;$('#space').value=S.space;$('#joinSel').value=S.join;$('#ver').textContent='v'+APP_NUM;showPct();
 }
-function relayout(){applyTheme();if(!cur)return;if(cur.type==='epub'){if((epubFFApplied!==null&&(S.ff==='book')!==(epubFFApplied==='book'))||(epubSpApplied!==null&&epubSpApplied!==S.space)){try{rend.destroy();book.destroy()}catch(_){}rend=book=null;epubFFApplied=epubSpApplied=null;openEpub();return}applyEpubStyle()}else{if(prepSig()!==cur.sig){const f=cur.pct||0;loadParas();layoutTxt(paraOf(f))}else layoutTxt(cur.pos||0)}}
+function relayout(){applyTheme();if(!cur)return;if(cur.type==='comic'){cmRelayout();return}if(cur.type==='epub'){if((epubFFApplied!==null&&(S.ff==='book')!==(epubFFApplied==='book'))||(epubSpApplied!==null&&epubSpApplied!==S.space)){try{rend.destroy();book.destroy()}catch(_){}rend=book=null;epubFFApplied=epubSpApplied=null;openEpub();return}applyEpubStyle()}else{if(prepSig()!==cur.sig){const f=cur.pct||0;loadParas();layoutTxt(paraOf(f))}else layoutTxt(cur.pos||0)}}
 $('#setBtn').onclick=()=>{$('#panel').hidden=false;$('#list').hidden=true};
 $('#closeP').onclick=()=>$('#panel').hidden=true;$('#closeL').onclick=()=>$('#list').hidden=true;
 document.querySelectorAll('#themes button').forEach(b=>b.onclick=()=>{S.theme=b.dataset.t;saveS();relayout()});
@@ -395,7 +407,7 @@ $('#listBtn').onclick=async()=>{
     walk(nav.toc,0);
   }
 };
-function gotoPos(p){if(cur.type==='epub')rend.display(p);else{const pi=Math.max(0,Math.min(paras.length-1,p|0));if(S.flow==='paginated'){curSec=secOf(pi);renderSec(pi)}else $('#txt').scrollTop=ps[pi].offsetTop-24}}
+function gotoPos(p){if(cur.type==='comic'){comicSeek(p,true);return}if(cur.type==='epub')rend.display(p);else{const pi=Math.max(0,Math.min(paras.length-1,p|0));if(S.flow==='paginated'){curSec=secOf(pi);renderSec(pi)}else $('#txt').scrollTop=ps[pi].offsetTop-24}}
 renderLib();
 
 // ---- update check ----
@@ -636,3 +648,99 @@ async function setPin(){
 }
 function syncHiddenRow(){const n=shelfHidden().filter(Boolean).length;const e=$('#pHiddenN');if(e)e.textContent=n;const b=$('#pPin');if(b)b.textContent=localStorage.getItem('shelfPin')?'변경 / 해제':'설정'}
 $('#pHidden').onclick=manageHidden;$('#pPin').onclick=setPin;
+
+// ================= COMIC / WEBTOON READER =================
+const IMG_RE=/\.(jpe?g|png|webp|gif|avif|bmp)$/i;
+const IMG_MIME={jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',webp:'image/webp',gif:'image/gif',avif:'image/avif',bmp:'image/bmp'};
+let cm=null;
+const cmMime=n=>IMG_MIME[(n.split('.').pop()||'').toLowerCase()]||'image/jpeg';
+const cmNames=zip=>Object.values(zip.files).filter(x=>!x.dir&&!/(^|\/)(__MACOSX|\.)/.test(x.name)&&IMG_RE.test(x.name)).map(x=>x.name).sort((a,b)=>a.localeCompare(b,'ko',{numeric:true}));
+async function comicCover(buf){
+  const zip=await JSZip.loadAsync(buf,{decodeFileName:zipName});const names=cmNames(zip);if(!names.length)return null;
+  const ab=await zip.file(names[0]).async('arraybuffer');return await blobToCover(new Blob([ab],{type:cmMime(names[0])}));
+}
+async function cmUrl(i){
+  if(!cm||i<0||i>=cm.names.length)return null;if(cm.urls[i])return cm.urls[i];if(cm.pending[i])return cm.pending[i];
+  const z=cm;cm.pending[i]=(async()=>{const ab=await z.zip.file(z.names[i]).async('arraybuffer');const u=URL.createObjectURL(new Blob([ab],{type:cmMime(z.names[i])}));
+    if(cm===z){z.urls[i]=u}else URL.revokeObjectURL(u);delete z.pending[i];return u})();
+  return cm.pending[i];
+}
+function cmRelease(keep){if(!cm)return;for(const k of Object.keys(cm.urls)){if(!keep(+k)){URL.revokeObjectURL(cm.urls[k]);delete cm.urls[k]}}}
+function cmCleanup(){if(!cm)return;try{cm.obs&&cm.obs.disconnect()}catch(_){}for(const u of Object.values(cm.urls))URL.revokeObjectURL(u);cm=null;$('#cmWeb').innerHTML='';$('#cmPage').innerHTML=''}
+async function cmDecideMode(){
+  if(S.comicMode==='page')return 'page';if(S.comicMode==='web')return 'web';
+  const saved=localStorage.getItem('cm_'+cur.id);if(saved)return saved;
+  const n=cm.names.length;const pick=[...new Set([0,1,2,Math.floor(n/2),n-1])].filter(i=>i<n);const ratios=[];
+  for(const i of pick){const u=await cmUrl(i);if(!u)continue;await new Promise(r=>{const im=new Image();im.onload=()=>{if(im.naturalWidth)ratios.push(im.naturalHeight/im.naturalWidth);r()};im.onerror=r;im.src=u})}
+  ratios.sort((a,b)=>a-b);const med=ratios.length?ratios[Math.floor(ratios.length/2)]:1.4;const m=med>2.2?'web':'page';localStorage.setItem('cm_'+cur.id,m);return m;
+}
+async function openComic(){
+  $('#viewer').hidden=true;$('#txt').hidden=true;$('#comic').hidden=false;
+  const zip=await JSZip.loadAsync(cur.data,{decodeFileName:zipName});const names=cmNames(zip);
+  cm={zip,names,urls:{},pending:{},mode:'page',idx:0,group:0,zoom:false,tok:0,ratio:1.4,ratioSet:false};
+  if(!names.length){uiAlert('이 만화에서 이미지를 찾지 못했어요.');return}
+  const start=typeof cur.pos==='number'?Math.max(0,Math.min(names.length-1,cur.pos|0)):0;
+  cm.mode=await cmDecideMode();layoutComic(start);
+}
+async function cmRelayout(){if(!cm||!cm.names.length)return;const z=cm,idx=z.idx;const m=await cmDecideMode();if(cm!==z)return;z.mode=m;layoutComic(idx)}
+function layoutComic(idx){
+  const web=cm.mode==='web';cm.zoom=false;
+  $('#cmWeb').hidden=!web;$('#cmPage').hidden=web;$('#cmPage').classList.remove('zoom');
+  $('#stage').classList.toggle('noz',web);$('#zoomBtn').hidden=web;
+  try{cm.obs&&cm.obs.disconnect()}catch(_){}cmRelease(()=>false);
+  if(web)buildWeb(idx);else buildPage(idx);
+}
+// --- webtoon (vertical scroll) ---
+function buildWeb(idx){
+  const box=$('#cmWeb');box.innerHTML='';const n=cm.names.length;const frag=document.createDocumentFragment();
+  for(let i=0;i<n;i++){const d=document.createElement('div');d.className='pg';d.dataset.i=i;frag.appendChild(d)}
+  box.appendChild(frag);cm.wrap=[...box.children];
+  const ph=()=>Math.round(Math.min(box.clientWidth||400,900)*cm.ratio);
+  cm.wrap.forEach(d=>d.style.minHeight=ph()+'px');
+  cm.obs=new IntersectionObserver(es=>{for(const e of es){const d=e.target,i=+d.dataset.i;if(e.isIntersecting)loadWeb(d,i);else unloadWeb(d,i)}},{root:box,rootMargin:'1800px 0px 1800px 0px'});
+  cm.wrap.forEach(d=>cm.obs.observe(d));
+  box.scrollTop=cm.wrap[idx]?cm.wrap[idx].offsetTop:0;cm.idx=idx;cur.pos=idx;cur.pct=n>1?idx/(n-1):1;showPct();setP();
+}
+async function loadWeb(d,i){
+  if(!cm||d.firstChild||d._ld)return;d._ld=true;const z=cm;const u=await cmUrl(i);d._ld=false;if(cm!==z||!d.isConnected||d.firstChild)return;
+  const im=new Image();im.decoding='async';
+  im.onload=()=>{d.style.minHeight='';d.style.height='';if(cm===z&&!z.ratioSet&&im.naturalWidth){z.ratio=im.naturalHeight/im.naturalWidth;z.ratioSet=true;const h=Math.round(Math.min($('#cmWeb').clientWidth||400,900)*z.ratio);z.wrap.forEach(x=>{if(!x.firstChild)x.style.minHeight=h+'px'})}};
+  im.src=u;d.appendChild(im);
+}
+function unloadWeb(d,i){if(!cm||!d.firstChild)return;d.style.height=d.offsetHeight+'px';d.innerHTML='';if(cm.urls[i]){URL.revokeObjectURL(cm.urls[i]);delete cm.urls[i]}}
+$('#cmWeb').addEventListener('scroll',()=>{
+  if(!cm||cm.mode!=='web')return;$('#reader').classList.add('hide');clearTimeout(cm._t);
+  cm._t=setTimeout(()=>{const box=$('#cmWeb');const y=box.scrollTop+box.clientHeight*0.1;let lo=0,hi=cm.wrap.length-1;
+    while(lo<hi){const m=(lo+hi+1)>>1;if(cm.wrap[m].offsetTop<=y)lo=m;else hi=m-1}
+    cm.idx=lo;cur.pos=lo;cur.pct=cm.names.length>1?lo/(cm.names.length-1):1;showPct();setP()},150);
+});
+// --- page mode (manga) ---
+const cmTwo=()=>{const st=$('#stage');return S.spread==='2'||(S.spread==='auto'&&st.clientWidth>=800&&st.clientWidth>st.clientHeight)};
+function cmGroups(){const n=cm.names.length,g=[];if(!cmTwo()){for(let i=0;i<n;i++)g.push([i]);return g}g.push([0]);for(let i=1;i<n;i+=2)g.push(i+1<n?[i,i+1]:[i]);return g}
+async function buildPage(idx){if(!cm)return;cm.groups=cmGroups();cm.group=Math.max(0,cm.groups.findIndex(g=>g.includes(idx)));await showGroup()}
+async function showGroup(){
+  const z=cm;const box=$('#cmPage');const g=z.groups[z.group];const tk=++z.tok;
+  const urls=await Promise.all(g.map(cmUrl));if(cm!==z||tk!==z.tok)return;
+  box.className=(S.comicDir==='rtl'?'rtl ':'')+(g.length>1?'two':'')+(z.zoom?' zoom':'');box.innerHTML='';box.scrollTo(0,0);
+  urls.forEach(u=>{const im=new Image();im.src=u;box.appendChild(im)});
+  const first=g[0];z.idx=first;cur.pos=first;cur.pct=z.names.length>1?first/(z.names.length-1):1;showPct();setP();
+  cmRelease(i=>Math.abs(i-first)<=3);
+  [z.groups[z.group+1],z.groups[z.group-1]].forEach(gg=>gg&&gg.forEach(i=>cmUrl(i)));
+}
+function comicMove(phys){
+  if(!cm||!cm.names.length)return;
+  if(cm.mode==='web'){const b=$('#cmWeb');b.scrollBy({top:phys*b.clientHeight*0.9,behavior:'smooth'});return}
+  if(cm.zoom)return;
+  const logical=S.comicDir==='rtl'?-phys:phys;const ng=Math.max(0,Math.min(cm.groups.length-1,cm.group+logical));
+  if(ng!==cm.group){cm.group=ng;showGroup()}
+}
+function comicSeek(v,isIndex){
+  if(!cm||!cm.names.length)return;const n=cm.names.length;const idx=isIndex?Math.max(0,Math.min(n-1,v|0)):Math.round(v*(n-1));
+  if(cm.mode==='web'){const d=cm.wrap[idx];if(d)$('#cmWeb').scrollTop=d.offsetTop}
+  else{cm.group=Math.max(0,cm.groups.findIndex(g=>g.includes(idx)));showGroup()}
+}
+$('#zoomBtn').onclick=()=>{if(!cm||cm.mode!=='page')return;cm.zoom=!cm.zoom;$('#cmPage').classList.toggle('zoom',cm.zoom);$('#stage').classList.toggle('noz',cm.zoom);$('#cmPage').scrollTo(0,0);$('#zoomBtn').textContent=cm.zoom?'축소':'확대'};
+$('#comic').addEventListener('click',()=>{if($('#stage').classList.contains('noz'))$('#reader').classList.toggle('hide')});
+$('#txt').addEventListener('click',()=>{if(cur&&cur.type==='txt'&&$('#stage').classList.contains('noz'))$('#reader').classList.toggle('hide')});
+$('#cmMode').onchange=e=>{S.comicMode=e.target.value;saveS();relayout()};
+$('#cmDir').onchange=e=>{S.comicDir=e.target.value;saveS();relayout()};
