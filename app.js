@@ -26,7 +26,7 @@ const cvReady=(async()=>{try{await dbp;const all=await tx('covers','readonly',s=
 }catch(e){}})();
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=38;
+const APP_NUM=39;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr',comicFit:'contain'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let resetScrollOnce=false,pendingScrollY=null,libY=0;
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
@@ -824,3 +824,8 @@ window.onNativeFolder=json=>{
   toast('폴더에서 '+files.length+'개 파일을 찾았어요',false);
   importFiles(files,true);
 };
+
+// ---- fullscreen toggle ----
+function syncFs(){const b=$('#fsBtn');if(b)b.textContent=document.fullscreenElement?'해제':'켜기'}
+$('#fsBtn').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen({navigationUI:'hide'})}catch(e){uiAlert('이 환경에서는 전체 화면을 켤 수 없어요.\n(크롬 메뉴 ⋮ > "홈 화면에 추가"로 설치한 앱이나 크롬에서 사용해 보세요)')}syncFs()};
+document.addEventListener('fullscreenchange',syncFs);

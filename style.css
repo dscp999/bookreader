@@ -128,3 +128,8 @@ h1{margin:0;font-size:22px;text-shadow:0 2px 4px #0008}
 #cmPage.fit-h:not(.zoom) img{height:100%;width:auto;max-width:none;max-height:none;flex:none}
 #cmPage.fit-o:not(.zoom){overflow:auto}
 #cmPage.fit-o:not(.zoom) img{width:auto;height:auto;max-width:none;max-height:none;flex:none}
+
+#cmPage.fit-cover:not(.zoom) img,#cmPage.fit-stretch:not(.zoom) img{width:100%;height:100%;max-width:none;max-height:none;flex:none;margin:0;box-shadow:none}
+#cmPage.fit-cover.two:not(.zoom) img,#cmPage.fit-stretch.two:not(.zoom) img{width:50%}
+#cmPage.fit-cover:not(.zoom) img{object-fit:cover}
+#cmPage.fit-stretch:not(.zoom) img{object-fit:fill}
