@@ -1,4 +1,4 @@
-const C='reader-v28';const A=['./','index.html','style.css','app.js','manifest.json','jszip.min.js','epub.min.js','icon-192.png','icon-512.png'];
+const C='reader-v29';const A=['./','index.html','style.css','app.js','manifest.json','jszip.min.js','epub.min.js','icon-192.png','icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(A.map(u=>new Request(u,{cache:'reload'})))));self.skipWaiting()});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C&&x!=='share').map(x=>caches.delete(x)))));self.clients.claim()});
 // Web Share Target: receive an image shared from another app (e.g. Google Images long-press > share)

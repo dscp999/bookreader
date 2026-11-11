@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=28;
+const APP_NUM=29;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
@@ -51,7 +51,12 @@ async function blobToCover(bl){const im=await createImageBitmap(bl);const w=240,
 async function urlToCover(u){try{const r=await fetch(u);if(!r.ok)throw 0;const bl=await r.blob();if(bl.size<500)throw 0;return await blobToCover(bl)}catch(_){return u}}
 // ---- online cover search ----
 const norm=s=>(s||'').toLowerCase().replace(/[\s\-_.,:;!?'"()\[\]{}~·]+/g,'');
-function cleanTitle(t){return t.replace(/\.(txt|epub)$/i,'').replace(/[\[\(【][^\]\)】]*[\]\)】]/g,' ').replace(/\d+\s*[-~]\s*\d+\s*(화|권|부)?/g,' ').replace(/(완결|외전포함|외전|합본|전권|최종본|무삭제)/g,' ').replace(/_+/g,' ').replace(/\s+/g,' ').trim()}
+function cleanTitle(t){let s=String(t).replace(/\.(txt|epub|zip|cbz)$/i,'');const orig=s;let prev;
+  do{prev=s;s=s.replace(/[(\[（［【〔][^()\[\]（）［］【】〔〕]*[)\]）］】〕]/g,' ')}while(s!==prev);
+  s=s.replace(/[(\[（［【〔][^)\]）］】〕]*$/,' ');
+  s=s.replace(/[(\[（）［］【】〔〕)\]]/g,' ');
+  s=s.replace(/\d+\s*[-~]\s*\d+\s*(화|권|부)?/g,' ').replace(/(완결|외전포함|외전|합본|전권|최종본|무삭제)/g,' ').replace(/_+/g,' ').replace(/\s+/g,' ').trim();
+  return s||orig.replace(/[(\[（）［］【】〔〕)\]]/g,' ').replace(/\s+/g,' ').trim()}
 function variants(t){const c=cleanTitle(t);const v=[c,c.replace(/\s*\d+\s*(권|화|부)?$/,'').trim(),c.split(/\s[-–:]\s/)[0].trim()];return [...new Set(v.filter(x=>x&&x.length>=2))]}
 async function searchCovers(q){
   const out=[];let netErr=false;
