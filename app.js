@@ -26,7 +26,7 @@ const cvReady=(async()=>{try{await dbp;const all=await tx('covers','readonly',s=
 }catch(e){}})();
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=35;
+const APP_NUM=36;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let resetScrollOnce=false,pendingScrollY=null,libY=0;
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
@@ -187,7 +187,9 @@ async function expandZip(f,notes){
   const epubs=ents.filter(x=>/\.epub$/i.test(x.name)),txts=ents.filter(x=>/\.txt$/i.test(x.name));
   for(const x of epubs)out.push({name:base(x.name),kind:'epub',get:()=>x.async('arraybuffer')});
   if(txts.length>1){
-    const merge=await uiDlg('"'+f.name+'" 안에 TXT가 '+txts.length+'개 있어요.\n한 권으로 합칠까요? (이름순으로 이어 붙여요)',{ok:'한 권으로 합치기',no:'각각 따로'});
+    const many=(window.__zipCount||0)>1;
+    const merge=window.__zipChoice!=null?window.__zipChoice:await uiDlg('"'+f.name+'" 안에 TXT가 '+txts.length+'개 있어요.\n한 권으로 합칠까요? (이름순으로 이어 붙여요)'+(many?'\n\n※ 이번에 고른 ZIP '+window.__zipCount+'개에 모두 같은 선택이 적용돼요.':''),{ok:'한 권으로 합치기',no:'각각 따로'});
+    if(many)window.__zipChoice=merge;
     if(merge){out.push({name:f.name.replace(/\.zip$/i,'')+'.txt',kind:'txt',get:async()=>{let s='';for(let i=0;i<txts.length;i++){const t=decodeText(await txts[i].async('arraybuffer')).replace(/\r\n?/g,'\n').trim();s+=(i?'\n\n':'')+'■ '+base(txts[i].name).replace(/\.txt$/i,'')+'\n\n'+t}return new TextEncoder().encode(s).buffer}});return out}
   }
   for(const x of txts)out.push({name:base(x.name),kind:'txt',get:()=>x.async('arraybuffer')});
@@ -198,6 +200,7 @@ async function importFiles(all,fromDir){
   if(!all.length)return;
   const kindOf=f=>{const n=f.name,t=f.type||'';if(/\.epub$/i.test(n)||t==='application/epub+zip')return 'epub';if(/\.txt$/i.test(n)||t==='text/plain')return 'txt';if(/\.(zip|cbz)$/i.test(n)||/zip/i.test(t))return 'zip';if(IMG_RE.test(n)||/^image\//.test(t))return 'img';return null};
   const relOf=f=>f.webkitRelativePath||f._rel||f.name;
+  window.__zipChoice=null;window.__zipCount=all.filter(f=>kindOf(f)==='zip'&&!/\.cbz$/i.test(f.name)).length;
   const notes=[],items=[],imgs=[];let skipped=0;
   for(const f of all){const k=kindOf(f);
     if(!k){skipped++;continue}
