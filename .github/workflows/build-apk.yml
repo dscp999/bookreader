@@ -120,11 +120,19 @@ jobs:
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
           import org.json.JSONObject;
+          import org.json.JSONArray;
+          import android.database.Cursor;
+          import android.provider.DocumentsContract;
+          import android.webkit.WebResourceResponse;
+          import java.io.InputStream;
+          import java.util.ArrayList;
 
           public class MainActivity extends Activity {
               static final String HOME = "https://dscp999.github.io/bookreader/";
               static final int REQ_FILE = 1;
               static final int REQ_COVER = 2;
+              static final int REQ_TREE = 3;
+              ArrayList<Uri> treeFiles = new ArrayList<Uri>();
               WebView web;
               AutoCover auto;
               ValueCallback<Uri[]> fileCb;
@@ -145,6 +153,22 @@ jobs:
                   s.setAllowContentAccess(true);
                   web.addJavascriptInterface(new Bridge(), "Android");
                   web.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
+                          String p = r.getUrl().getPath();
+                          if (p != null && p.startsWith("/__saf/")) {
+                              try {
+                                  int idx = Integer.parseInt(p.substring(7));
+                                  InputStream in = getContentResolver().openInputStream(treeFiles.get(idx));
+                                  return new WebResourceResponse("application/octet-stream", null, in);
+                              } catch (Exception e) {
+                                  return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found", null, null);
+                              }
+                          }
+                          return null;
+                      }
+
+
                       @Override
                       public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                           Uri u = r.getUrl();
@@ -178,6 +202,21 @@ jobs:
 
               class Bridge {
                   @JavascriptInterface
+                  public void pickFolder() {
+                      runOnUiThread(new Runnable() {
+                          public void run() {
+                              Intent t = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                              try {
+                                  startActivityForResult(t, REQ_TREE);
+                              } catch (Exception e) {
+                                  web.evaluateJavascript("window.onNativeFolder&&window.onNativeFolder('[]')", null);
+                              }
+                          }
+                      });
+                  }
+
+
+                  @JavascriptInterface
                   public void autoCover(final String id, final String query) {
                       runOnUiThread(new Runnable() {
                           public void run() {
@@ -199,9 +238,73 @@ jobs:
                   }
               }
 
+                  void walkTree(Uri tree, String docId, String path, JSONArray out, int depth) {
+                      if (depth > 12 || out.length() > 20000) return;
+                      Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId);
+                      Cursor c = getContentResolver().query(children, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.COLUMN_SIZE}, null, null, null);
+                      if (c == null) return;
+                      ArrayList<String[]> dirs = new ArrayList<String[]>();
+                      try {
+                          while (c.moveToNext()) {
+                              String id = c.getString(0);
+                              String name = c.getString(1);
+                              String mime = c.getString(2);
+                              long size = c.isNull(3) ? 0 : c.getLong(3);
+                              if (name == null) continue;
+                              if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
+                                  dirs.add(new String[]{id, name});
+                              } else {
+                                  String n = name.toLowerCase();
+                                  if (n.endsWith(".epub") || n.endsWith(".txt") || n.endsWith(".zip") || n.endsWith(".cbz") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png") || n.endsWith(".webp") || n.endsWith(".gif")) {
+                                      try {
+                                          JSONObject o = new JSONObject();
+                                          o.put("i", treeFiles.size());
+                                          o.put("name", name);
+                                          o.put("rel", path + name);
+                                          o.put("size", size);
+                                          o.put("mime", mime == null ? "" : mime);
+                                          out.put(o);
+                                          treeFiles.add(DocumentsContract.buildDocumentUriUsingTree(tree, id));
+                                      } catch (Exception e) {
+                                      }
+                                  }
+                              }
+                          }
+                      } finally {
+                          c.close();
+                      }
+                      for (String[] d : dirs) {
+                          walkTree(tree, d[0], path + d[1] + "/", out, depth + 1);
+                      }
+                  }
+
+
               @Override
               protected void onActivityResult(int req, int res, Intent data) {
                   super.onActivityResult(req, res, data);
+                  if (req == REQ_TREE) {
+                      if (res != RESULT_OK || data == null || data.getData() == null) {
+                          web.evaluateJavascript("window.onNativeFolder&&window.onNativeFolder('[]')", null);
+                          return;
+                      }
+                      final Uri tree = data.getData();
+                      new Thread(new Runnable() {
+                          public void run() {
+                              final JSONArray out = new JSONArray();
+                              treeFiles = new ArrayList<Uri>();
+                              try {
+                                  walkTree(tree, DocumentsContract.getTreeDocumentId(tree), "", out, 0);
+                              } catch (Exception e) {
+                              }
+                              runOnUiThread(new Runnable() {
+                                  public void run() {
+                                      web.evaluateJavascript("window.onNativeFolder&&window.onNativeFolder(" + JSONObject.quote(out.toString()) + ")", null);
+                                  }
+                              });
+                          }
+                      }).start();
+                      return;
+                  }
                   if (req == REQ_FILE) {
                       Uri[] out = null;
                       if (res == RESULT_OK && data != null) {
