@@ -17,7 +17,7 @@ const dbAdd=(m,data)=>tx(['books','files'],'readwrite',(b,f)=>{f.put({id:m.id,da
 const dbDel=id=>tx(['books','files'],'readwrite',(b,f)=>{f.delete(id);return b.delete(id)});
 function toast(msg,sticky){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}t.textContent=msg;t.style.display='block';clearTimeout(t._h);if(!sticky)t._h=setTimeout(()=>t.style.display='none',2200)}
 // ---- settings ----
-const APP_NUM=27;
+const APP_NUM=28;
 const S=Object.assign({theme:'dark',fs:20,lh:1.7,mg:20,ff:'serif',flow:'paginated',spread:'auto',coverSize:'M',space:'n',join:'auto',comicMode:'auto',comicDir:'ltr'},JSON.parse(localStorage.getItem('rs')||'{}'));
 let curShelf=Math.max(0,Math.min(3,+localStorage.getItem('curShelf')||0));
 const saveS=()=>localStorage.setItem('rs',JSON.stringify(S));
@@ -80,12 +80,15 @@ let _rr;const softRender=()=>{clearTimeout(_rr);_rr=setTimeout(()=>{if(!$('#lib'
 let coverRerun=false;
 const nativeOK=()=>!!(window.Android&&typeof Android.autoCover==='function');
 function bumpStat(ok){let s={ok:0,fail:0};try{s=JSON.parse(localStorage.getItem('autoStat')||'')||s}catch(_){}ok?s.ok++:s.fail++;localStorage.setItem('autoStat',JSON.stringify(s))}
-const needCover=b=>{const c=localStorage.getItem('c_'+b.id);return !(c&&c!=='none')&&!triedSess.has(b.id)};
+const getFail=id=>{try{return JSON.parse(localStorage.getItem('f_'+id)||'null')}catch(_){return null}};
+const failWait=n=>(n<=1?1:n===2?3:14)*86400000;
+function markFail(id){const f=getFail(id)||{n:0};localStorage.setItem('f_'+id,JSON.stringify({t:Date.now(),n:f.n+1}))}
+const needCover=b=>{const c=localStorage.getItem('c_'+b.id);if(c&&c!=='none')return false;if(triedSess.has(b.id))return false;const f=getFail(b.id);if(f&&Date.now()-f.t<failWait(f.n))return false;return true};
 async function ensureCovers(){
   if(!autoOn())return;
   if(coverBusy){coverRerun=true;return}
   const hasNative=nativeOK();
-  if(hasNative&&localStorage.getItem('autoMig2')!=='1'){for(const b of libCache){if(localStorage.getItem('c_'+b.id)==='x'&&localStorage.getItem('k_'+b.id)!=='1')localStorage.removeItem('c_'+b.id)}localStorage.setItem('autoMig2','1')}
+  if(hasNative&&localStorage.getItem('autoMig2')!=='1'){for(const b of libCache){if(localStorage.getItem('c_'+b.id)==='x'&&localStorage.getItem('k_'+b.id)!=='1')localStorage.removeItem('c_'+b.id);localStorage.removeItem('f_'+b.id)}localStorage.setItem('autoMig2','1')}
   const todo=libCache.filter(needCover);
   if(!todo.length)return;
   coverBusy=true;let k=0,done=0;const total=todo.length;toast('표지 찾는 중 0/'+total,true);
@@ -96,8 +99,9 @@ async function ensureCovers(){
       if(!u&&b.type==='comic'){const full=await dbGet(b.id);if(full)u=await comicCover(full.data)}
       if(!u&&b.type!=='comic'&&hasNative){nt=true;u=await nativeAuto(b);bumpStat(!!u)}
       if(!u&&b.type!=='comic'){const r=await autoCoverFor(b.title);u=r.url;err=r.err&&!u}
-      if(u){try{localStorage.setItem('c_'+b.id,u)}catch(_){}}
+      if(u){try{localStorage.setItem('c_'+b.id,u)}catch(_){}localStorage.removeItem('f_'+b.id)}
       else if(!err&&!nt)localStorage.setItem('c_'+b.id,'x');
+      else markFail(b.id);
       softRender();
     }catch(_){}
     done++;toast('표지 찾는 중 '+done+'/'+total,true);
@@ -426,15 +430,15 @@ $('#updBtn').onclick=checkUpdate;$('#updBtn2').onclick=checkUpdate;
 // ---- Moon+ style: long-press menu, built-in covers, rebuild, size ----
 function setCover(id,u,lock){try{localStorage.setItem('c_'+id,u)}catch(_){uiAlert('저장 공간이 부족해요');return}if(lock)localStorage.setItem('k_'+id,'1');else localStorage.removeItem('k_'+id)}
 function buildStyles(){const box=$('#covStyles');box.innerHTML='';STY.forEach((s,i)=>{const d=document.createElement('div');d.className='sty';d.style.background=styBg(i);d.onclick=()=>{setCover(covBook.id,'style:'+i,true);$('#cov').hidden=true;renderLib(true)};box.appendChild(d)})}
-$('#covAuto').onclick=()=>{localStorage.removeItem('c_'+covBook.id);localStorage.removeItem('k_'+covBook.id);triedSess.delete(covBook.id);$('#cov').hidden=true;renderLib(true)};
-async function deleteBook(b){if(!(await uiConfirm('"'+b.title+'" 삭제할까요?')))return;await dbDel(b.id);['p_','b_','c_','o_','k_'].forEach(k=>localStorage.removeItem(k+b.id));$('#act').hidden=true;renderLib()}
+$('#covAuto').onclick=()=>{localStorage.removeItem('c_'+covBook.id);localStorage.removeItem('f_'+covBook.id);localStorage.removeItem('k_'+covBook.id);triedSess.delete(covBook.id);$('#cov').hidden=true;renderLib(true)};
+async function deleteBook(b){if(!(await uiConfirm('"'+b.title+'" 삭제할까요?')))return;await dbDel(b.id);['p_','b_','c_','o_','k_','f_'].forEach(k=>localStorage.removeItem(k+b.id));$('#act').hidden=true;renderLib()}
 function openAct(b){
   $('#actT').textContent=b.title;const body=$('#actBody');body.innerHTML='';
   const add=(label,fn,cls)=>{const x=document.createElement('button');x.textContent=label;if(cls)x.className=cls;x.onclick=fn;body.appendChild(x)};
   add('열기',()=>{$('#act').hidden=true;openBook(b.id)});
   add('표지 선택...',()=>openCov(b));
   if(window.Android&&Android.openCoverSearch)add('내장 표지 / 내 이미지로 선택...',()=>openCovSheet(b));
-  add('표지 자동으로 다시 만들기',()=>{localStorage.removeItem('c_'+b.id);localStorage.removeItem('k_'+b.id);triedSess.delete(b.id);$('#act').hidden=true;renderLib(true)});
+  add('표지 자동으로 다시 만들기',()=>{localStorage.removeItem('c_'+b.id);localStorage.removeItem('f_'+b.id);localStorage.removeItem('k_'+b.id);triedSess.delete(b.id);$('#act').hidden=true;renderLib(true)});
   add('이름 바꾸기',async()=>{const t=await uiPrompt('책 이름',b.title);if(t&&t.trim()){const m=libCache.find(x=>x.id===b.id);if(m){m.title=t.trim();await dbPut(m)}$('#act').hidden=true;renderLib(true)}});
   add('다른 책장으로 이동...',()=>pickShelf(b));
   add('삭제',()=>deleteBook(b),'danger');
@@ -450,7 +454,7 @@ function bindBook(el,b){
   el.onclick=()=>{if(el._lp)return;openBook(b.id)};
 }
 $('#rebuildBtn').onclick=async()=>{if(!(await uiConfirm('직접 고른 표지를 제외한 모든 표지를 다시 만들까요?')))return;
-  for(const b of libCache){if(localStorage.getItem('k_'+b.id)!=='1')localStorage.removeItem('c_'+b.id)}triedSess.clear();toast('표지를 다시 만드는 중...');renderLib(true)};
+  for(const b of libCache){if(localStorage.getItem('k_'+b.id)!=='1')localStorage.removeItem('c_'+b.id);localStorage.removeItem('f_'+b.id)}triedSess.clear();toast('표지를 다시 만드는 중...');renderLib(true)};
 $('#sizeBtn').onclick=()=>{S.coverSize=S.coverSize==='M'?'L':S.coverSize==='L'?'S':'M';saveS();renderLib(true)};
 
 // ---- Moon+ style: pick cover from Google Images (via clipboard / URL) ----
